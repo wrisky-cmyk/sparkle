@@ -8,10 +8,15 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { IoLink } from 'react-icons/io5'
 import { useAppConfig } from '@renderer/hooks/use-app-config'
+import { useControledMihomoConfig } from '@renderer/hooks/use-controled-mihomo-config'
 import { readImageFileDataURL } from '@renderer/utils/ipc'
 import { platform } from '@renderer/utils/init'
 import templateTrayIcon from '../../../../../resources/iconTemplate.png'
 import TrafficChart from './traffic-chart'
+import {
+  resolveTrayIconSource,
+  resolveTrayIconState
+} from '../../../../shared/tray-icon'
 
 let currentUpload: number | undefined = undefined
 let currentDownload: number | undefined = undefined
@@ -38,13 +43,23 @@ const ConnCard: React.FC<Props> = (props) => {
   const {
     showTraffic = false,
     customTrayIcon = '',
+    customTrayIconSysProxy = '',
+    customTrayIconTun = '',
+    sysProxy,
     connectionCardStatus = 'col-span-2',
     disableAnimation = false
   } = appConfig || {}
+  const { controledMihomoConfig } = useControledMihomoConfig()
+  const { tun } = controledMihomoConfig || {}
   const showTrafficRef = useRef(showTraffic)
   showTrafficRef.current = showTraffic
-  const customTrayIconRef = useRef(customTrayIcon)
-  customTrayIconRef.current = customTrayIcon
+  // 托盘图标随系统代理 / 虚拟网卡状态切换
+  const trayIcon = resolveTrayIconSource(
+    { customTrayIcon, customTrayIconSysProxy, customTrayIconTun },
+    resolveTrayIconState(sysProxy?.enable ?? false, tun?.enable ?? false)
+  )
+  const customTrayIconRef = useRef(trayIcon)
+  customTrayIconRef.current = trayIcon
 
   const location = useLocation()
   const navigate = useNavigate()

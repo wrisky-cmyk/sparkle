@@ -31,6 +31,7 @@ import TrayIconCropModal from './tray-icon-crop-modal'
 import { notify } from '@renderer/utils/notification'
 
 const rasterTrayIconPattern = /\.(png|jpe?g|webp)$/i
+type TrayIconKey = 'customTrayIcon' | 'customTrayIconSysProxy' | 'customTrayIconTun'
 
 const AppearanceConfig: React.FC = () => {
   const { appConfig, patchAppConfig } = useAppConfig()
@@ -41,7 +42,10 @@ const AppearanceConfig: React.FC = () => {
     }[]
   >()
   const [openCSSEditor, setOpenCSSEditor] = useState(false)
-  const [trayIconCropDataURL, setTrayIconCropDataURL] = useState('')
+  const [trayIconCrop, setTrayIconCrop] = useState<{
+    key: TrayIconKey
+    dataURL: string
+  } | null>(null)
   const [fetching, setFetching] = useState(false)
   const { setTheme } = useTheme()
   const {
@@ -50,6 +54,8 @@ const AppearanceConfig: React.FC = () => {
     proxyInTray = true,
     trayProxyDelayLayout = 'auto',
     customTrayIcon = '',
+    customTrayIconSysProxy = '',
+    customTrayIconTun = '',
     disableTray = false,
     showFloatingWindow: showFloating = false,
     spinFloatingIcon = true,
@@ -76,6 +82,73 @@ const AppearanceConfig: React.FC = () => {
     }
   }, [])
 
+  const pickTrayIcon = async (key: TrayIconKey): Promise<void> => {
+    const files = await getFilePath(
+      ['png', 'jpg', 'jpeg', 'webp', 'ico', 'icns'],
+      '选择托盘图标',
+      '托盘图标'
+    )
+    if (!files?.[0]) return
+    if (rasterTrayIconPattern.test(files[0])) {
+      setTrayIconCrop({ key, dataURL: await readImageFileDataURL(files[0]) })
+      return
+    }
+    await patchAppConfig({ [key]: await readImageFileDataURL(files[0]) } as Partial<AppConfig>)
+    await updateTrayIcon()
+  }
+
+  const clearTrayIcon = async (key: TrayIconKey): Promise<void> => {
+    await patchAppConfig({ [key]: '' } as Partial<AppConfig>)
+    await updateTrayIcon()
+  }
+
+  const renderTrayIconSetting = (
+    title: string,
+    tooltip: string,
+    key: TrayIconKey,
+    value: string
+  ): React.ReactNode => (
+    <SettingItem
+      compatKey="legacy"
+      title={title}
+      actions={
+        <Tooltip delay={0}>
+          <Button isIconOnly size="sm" variant="ghost" data-color="default">
+            <IoIosHelpCircle className="text-lg" />
+          </Button>
+          <Tooltip.Content>{tooltip}</Tooltip.Content>
+        </Tooltip>
+      }
+      divider
+    >
+      <div className="flex min-w-0 max-w-[65%] items-center justify-end gap-2">
+        {value && (
+          <span className="truncate text-xs text-default-500">
+            {value.startsWith('data:image/') ? '已储存自定义图标' : value}
+          </span>
+        )}
+        <Button
+          size="sm"
+          onPress={() => pickTrayIcon(key)}
+          variant="secondary"
+          data-color="default"
+        >
+          {value ? '更换图标' : '选择图标'}
+        </Button>
+        {value && (
+          <Button
+            size="sm"
+            onPress={() => clearTrayIcon(key)}
+            variant="ghost"
+            data-color="default"
+          >
+            恢复默认
+          </Button>
+        )}
+      </div>
+    </SettingItem>
+  )
+
   return (
     <>
       {openCSSEditor && (
@@ -89,13 +162,13 @@ const AppearanceConfig: React.FC = () => {
           }}
         />
       )}
-      {trayIconCropDataURL && (
+      {trayIconCrop && (
         <TrayIconCropModal
-          imageDataURL={trayIconCropDataURL}
-          onCancel={() => setTrayIconCropDataURL('')}
+          imageDataURL={trayIconCrop.dataURL}
+          onCancel={() => setTrayIconCrop(null)}
           onConfirm={async (dataURL) => {
-            await patchAppConfig({ customTrayIcon: dataURL })
-            setTrayIconCropDataURL('')
+            await patchAppConfig({ [trayIconCrop.key]: dataURL } as Partial<AppConfig>)
+            setTrayIconCrop(null)
             await updateTrayIcon()
           }}
         />
@@ -189,65 +262,26 @@ const AppearanceConfig: React.FC = () => {
           </>
         )}
         {!disableTray && (
-          <SettingItem
-            compatKey="legacy"
-            title="自定义托盘图标"
-            actions={
-              <Tooltip delay={0}>
-                <Button isIconOnly size="sm" variant="ghost" data-color="default">
-                  <IoIosHelpCircle className="text-lg" />
-                </Button>
-                <Tooltip.Content>
-                  {
-                    '设置后托盘会使用此图标；开启网速显示时会与网速合成。PNG、JPG、WebP 会先裁剪后保存。'
-                  }
-                </Tooltip.Content>
-              </Tooltip>
-            }
-            divider
-          >
-            <div className="flex min-w-0 max-w-[65%] items-center justify-end gap-2">
-              {customTrayIcon && (
-                <span className="truncate text-xs text-default-500">
-                  {customTrayIcon.startsWith('data:image/') ? '已储存自定义图标' : customTrayIcon}
-                </span>
-              )}
-              <Button
-                size="sm"
-                onPress={async () => {
-                  const files = await getFilePath(
-                    ['png', 'jpg', 'jpeg', 'webp', 'ico', 'icns'],
-                    '选择托盘图标',
-                    '托盘图标'
-                  )
-                  if (!files?.[0]) return
-                  if (rasterTrayIconPattern.test(files[0])) {
-                    setTrayIconCropDataURL(await readImageFileDataURL(files[0]))
-                    return
-                  }
-                  await patchAppConfig({ customTrayIcon: await readImageFileDataURL(files[0]) })
-                  await updateTrayIcon()
-                }}
-                variant="secondary"
-                data-color="default"
-              >
-                {customTrayIcon ? '更换图标' : '选择图标'}
-              </Button>
-              {customTrayIcon && (
-                <Button
-                  size="sm"
-                  onPress={async () => {
-                    await patchAppConfig({ customTrayIcon: '' })
-                    await updateTrayIcon()
-                  }}
-                  variant="ghost"
-                  data-color="default"
-                >
-                  恢复默认
-                </Button>
-              )}
-            </div>
-          </SettingItem>
+          <>
+            {renderTrayIconSetting(
+              '自定义托盘图标',
+              '设置后托盘会使用此图标；开启网速显示时会与网速合成。PNG、JPG、WebP 会先裁剪后保存。',
+              'customTrayIcon',
+              customTrayIcon
+            )}
+            {renderTrayIconSetting(
+              '托盘图标（系统代理）',
+              '开启系统代理时使用此图标，留空则沿用上面的默认图标。',
+              'customTrayIconSysProxy',
+              customTrayIconSysProxy
+            )}
+            {renderTrayIconSetting(
+              '托盘图标（虚拟网卡）',
+              '开启虚拟网卡时使用此图标；与系统代理同时开启时优先使用此图标。',
+              'customTrayIconTun',
+              customTrayIconTun
+            )}
+          </>
         )}
         {platform !== 'linux' && (
           <>

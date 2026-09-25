@@ -36,12 +36,16 @@ import { is } from '@electron-toolkit/utils'
 import { extname, join } from 'path'
 import { applyTheme } from './theme'
 import { existsSync } from 'fs'
+import { resolveTrayIconSource, resolveTrayIconState, type TrayIconState } from '../../shared/tray-icon'
 
 export let tray: Tray | null = null
 export let customTrayWindow: BrowserWindow | null = null
 let trayMenu: Menu | null = null
 let trayIconUpdateListenerRegistered = false
 let updateTrayMenuListenerRegistered = false
+let trayIconStateListenerRegistered = false
+let currentTrayIconKey = ''
+let lastTrafficTrayIconAt = 0
 type TrayImage = Electron.NativeImage | string
 const customTrayIconSize = 16
 const customTrayIconScaleFactors = [1, 1.25, 1.5, 2, 2.5, 3]
@@ -120,6 +124,46 @@ function createTrafficTrayImage(png: string, templateImage = true): Electron.Nat
 
   image.setTemplateImage(templateImage)
   return image
+}
+
+async function resolveActiveTrayIcon(): Promise<{
+  state: TrayIconState
+  source: string
+  image: TrayImage | null
+}> {
+  const [
+    {
+      sysProxy,
+      customTrayIcon = '',
+      customTrayIconSysProxy = '',
+      customTrayIconTun = ''
+    },
+    { tun }
+  ] = await Promise.all([getAppConfig(), getControledMihomoConfig()])
+
+  const state = resolveTrayIconState(sysProxy?.enable ?? false, tun?.enable ?? false)
+  const source = resolveTrayIconSource(
+    { customTrayIcon, customTrayIconSysProxy, customTrayIconTun },
+    state
+  )
+
+  return { state, source, image: createCustomTrayImage(source) }
+}
+
+function applyTrayIcon(image: TrayImage | null): void {
+  if (image) {
+    tray?.setImage(image)
+    return
+  }
+  if (process.platform === 'darwin') {
+    tray?.setImage(createDarwinTrayIcon())
+    return
+  }
+  if (process.platform === 'win32') {
+    tray?.setImage(icoIcon)
+    return
+  }
+  tray?.setImage(pngIcon)
 }
 
 function positionCustomTrayWindow(win: BrowserWindow): void {
@@ -532,6 +576,13 @@ export async function createTray(): Promise<void> {
   }
   tray?.setToolTip('Sparkle')
   tray?.setIgnoreDoubleClickEvents(true)
+  if (!trayIconStateListenerRegistered) {
+    // 系统代理 / 虚拟网卡状态变化时同步切换托盘图标
+    ipcMain.on('updateTrayMenu', () => {
+      void updateTrayIcon()
+    })
+    trayIconStateListenerRegistered = true
+  }
   await updateTrayIcon()
   if (process.platform === 'darwin') {
     if (!useDockIcon && app.dock) {
@@ -539,8 +590,8 @@ export async function createTray(): Promise<void> {
     }
     if (!trayIconUpdateListenerRegistered) {
       ipcMain.on('trayIconUpdate', async (_, png?: string) => {
-        const { customTrayIcon = '' } = await getAppConfig()
-        const customIcon = createCustomTrayImage(customTrayIcon)
+        const { state, source, image: customIcon } = await resolveActiveTrayIcon()
+        lastTrafficTrayIconAt = Date.now()
         if (png) {
           const image = createTrafficTrayImage(png, !customIcon)
           if (image) {
@@ -548,6 +599,8 @@ export async function createTray(): Promise<void> {
             return
           }
         }
+        lastTrafficTrayIconAt = 0
+        currentTrayIconKey = `${state}:${source}`
         tray?.setImage(customIcon || createDarwinTrayIcon())
       })
       trayIconUpdateListenerRegistered = true
@@ -583,22 +636,15 @@ export async function createTray(): Promise<void> {
 export async function updateTrayIcon(): Promise<void> {
   if (!tray) return
 
-  const { customTrayIcon = '' } = await getAppConfig()
-  const customIcon = createCustomTrayImage(customTrayIcon)
-  if (customIcon) {
-    tray.setImage(customIcon)
-    return
-  }
+  const { state, source, image } = await resolveActiveTrayIcon()
+  const iconKey = `${state}:${source}`
+  if (iconKey === currentTrayIconKey) return
+  currentTrayIconKey = iconKey
 
-  if (process.platform === 'darwin') {
-    tray.setImage(createDarwinTrayIcon())
-    return
-  }
-  if (process.platform === 'win32') {
-    tray.setImage(icoIcon)
-    return
-  }
-  tray.setImage(pngIcon)
+  // macOS 的网速图标由渲染进程绘制，避免两者互相覆盖
+  if (process.platform === 'darwin' && Date.now() - lastTrafficTrayIconAt < 3000) return
+
+  applyTrayIcon(image)
 }
 
 async function updateTrayMenu(): Promise<void> {
@@ -666,6 +712,8 @@ export async function closeTrayIcon(): Promise<void> {
   }
   tray = null
   trayMenu = null
+  currentTrayIconKey = ''
+  lastTrafficTrayIconAt = 0
   if (customTrayWindow) {
     customTrayWindow.destroy()
   }
