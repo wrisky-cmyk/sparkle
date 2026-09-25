@@ -36,7 +36,11 @@ import { is } from '@electron-toolkit/utils'
 import { extname, join } from 'path'
 import { applyTheme } from './theme'
 import { existsSync } from 'fs'
-import { resolveTrayIconSource, resolveTrayIconState, type TrayIconState } from '../../shared/tray-icon'
+import {
+  resolveTrayIconSource,
+  resolveTrayIconState,
+  type TrayIconState
+} from '../../shared/tray-icon'
 
 export let tray: Tray | null = null
 export let customTrayWindow: BrowserWindow | null = null
@@ -132,12 +136,7 @@ async function resolveActiveTrayIcon(): Promise<{
   image: TrayImage | null
 }> {
   const [
-    {
-      sysProxy,
-      customTrayIcon = '',
-      customTrayIconSysProxy = '',
-      customTrayIconTun = ''
-    },
+    { sysProxy, customTrayIcon = '', customTrayIconSysProxy = '', customTrayIconTun = '' },
     { tun }
   ] = await Promise.all([getAppConfig(), getControledMihomoConfig()])
 

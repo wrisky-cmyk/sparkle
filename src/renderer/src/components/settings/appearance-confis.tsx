@@ -136,12 +136,7 @@ const AppearanceConfig: React.FC = () => {
           {value ? '更换图标' : '选择图标'}
         </Button>
         {value && (
-          <Button
-            size="sm"
-            onPress={() => clearTrayIcon(key)}
-            variant="ghost"
-            data-color="default"
-          >
+          <Button size="sm" onPress={() => clearTrayIcon(key)} variant="ghost" data-color="default">
             恢复默认
           </Button>
         )}

@@ -13,10 +13,7 @@ import { readImageFileDataURL } from '@renderer/utils/ipc'
 import { platform } from '@renderer/utils/init'
 import templateTrayIcon from '../../../../../resources/iconTemplate.png'
 import TrafficChart from './traffic-chart'
-import {
-  resolveTrayIconSource,
-  resolveTrayIconState
-} from '../../../../shared/tray-icon'
+import { resolveTrayIconSource, resolveTrayIconState } from '../../../../shared/tray-icon'
 
 let currentUpload: number | undefined = undefined
 let currentDownload: number | undefined = undefined
