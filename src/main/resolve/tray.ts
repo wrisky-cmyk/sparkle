@@ -36,6 +36,7 @@ import { is } from '@electron-toolkit/utils'
 import { extname, join } from 'path'
 import { applyTheme } from './theme'
 import { existsSync } from 'fs'
+import { appendAppLog } from '../utils/log'
 import {
   resolveTrayIconSource,
   resolveTrayIconState,
@@ -96,12 +97,33 @@ function createMultiScaleTrayImage(icon: Electron.NativeImage): Electron.NativeI
   return resizeTrayImageForScale(icon, 1)
 }
 
+const warnedTrayIcons = new Set<string>()
+
+function warnInvalidTrayIcon(reason: string): void {
+  if (warnedTrayIcons.has(reason)) return
+  warnedTrayIcons.add(reason)
+  appendAppLog(`[Tray]: ${reason}\n`).catch(() => {})
+}
+
+function isSvgPayload(dataUrl: string): boolean {
+  const start = dataUrl.indexOf(',') + 1
+  const head = Buffer.from(dataUrl.slice(start, start + 64), 'base64').toString('utf8')
+  return head.trimStart().startsWith('<svg')
+}
+
 function createCustomTrayImage(customTrayIcon: string): TrayImage | null {
   if (!customTrayIcon) return null
 
   if (customTrayIcon.startsWith('data:image/')) {
     const icon = nativeImage.createFromDataURL(customTrayIcon)
-    if (icon.isEmpty()) return null
+    if (icon.isEmpty()) {
+      warnInvalidTrayIcon(
+        customTrayIcon.startsWith('data:image/png') && isSvgPayload(customTrayIcon)
+          ? '图标内容其实是 SVG，但 MIME 声明为 image/png，托盘无法解码；请用设置里的“选择图标”重新选一次'
+          : '图标数据无法解码，已回落到默认图标'
+      )
+      return null
+    }
 
     return createMultiScaleTrayImage(icon)
   }
@@ -109,7 +131,14 @@ function createCustomTrayImage(customTrayIcon: string): TrayImage | null {
   if (!existsSync(customTrayIcon)) return null
 
   const icon = nativeImage.createFromPath(customTrayIcon)
-  if (icon.isEmpty()) return null
+  if (icon.isEmpty()) {
+    warnInvalidTrayIcon(
+      extname(customTrayIcon).toLowerCase() === '.svg'
+        ? 'SVG 无法直接作为托盘图标，请用设置里的“选择图标”选一次以转换为 PNG'
+        : `图标文件无法解码：${customTrayIcon}`
+    )
+    return null
+  }
 
   const iconExt = extname(customTrayIcon).toLowerCase()
   if (process.platform === 'win32' && iconExt === '.ico') {

@@ -41,7 +41,13 @@ export async function readImageFileDataURL(filePath: string): Promise<string> {
     return image.toDataURL()
   }
   const mimeType =
-    ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : ext === '.webp' ? 'image/webp' : 'image/png'
+    ext === '.jpg' || ext === '.jpeg'
+      ? 'image/jpeg'
+      : ext === '.webp'
+        ? 'image/webp'
+        : ext === '.svg'
+          ? 'image/svg+xml'
+          : 'image/png'
   const data = await readFile(filePath)
 
   return `data:${mimeType};base64,${data.toString('base64')}`

@@ -132,6 +132,9 @@ interface AppConfig {
   customTrayIcon?: string
   customTrayIconSysProxy?: string
   customTrayIconTun?: string
+  trayIconAutoTint?: boolean
+  trayIconSysProxyColor?: string
+  trayIconTunColor?: string
   useCustomTrayMenu?: boolean
   webdavUrl?: string
   webdavDir?: string

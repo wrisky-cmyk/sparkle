@@ -256,6 +256,44 @@ function applyRoundedMask(
   ctx.restore()
 }
 
+// 保留原图明暗，把颜色整体换成目标色，用于「按状态自动着色」的托盘图标
+export function recolorImageElementToPngDataURL(
+  image: HTMLImageElement,
+  rgbColor: ImageRgbColor,
+  size = 128
+): string | undefined {
+  const output = createCanvas2D(size, size)
+  if (!output) return undefined
+
+  const { canvas, ctx } = output
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
+  ctx.clearRect(0, 0, size, size)
+  ctx.drawImage(image, 0, 0, size, size)
+
+  const imageData = ctx.getImageData(0, 0, size, size)
+  const { data } = imageData
+  const redColor = clampByte(rgbColor.red)
+  const greenColor = clampByte(rgbColor.green)
+  const blueColor = clampByte(rgbColor.blue)
+
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] === 0) continue
+
+    // 用 gamma 提亮中间调，深色图标也能看出目标色
+    const luminance = Math.pow(
+      (data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722) / 255,
+      0.6
+    )
+    data[i] = redColor * luminance
+    data[i + 1] = greenColor * luminance
+    data[i + 2] = blueColor * luminance
+  }
+
+  ctx.putImageData(imageData, 0, 0)
+  return canvasToPngDataURL(canvas)
+}
+
 export function cropImageElementToPngDataURL(
   image: HTMLImageElement,
   crop: SquareCropArea,

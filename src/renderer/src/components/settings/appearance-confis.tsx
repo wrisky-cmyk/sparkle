@@ -29,9 +29,29 @@ import { MdEditDocument } from 'react-icons/md'
 import CSSEditorModal from './css-editor-modal'
 import TrayIconCropModal from './tray-icon-crop-modal'
 import { notify } from '@renderer/utils/notification'
+import { loadImageElement, recolorImageElementToPngDataURL } from '@renderer/utils/image'
+import defaultTrayIcon from '../../../../../resources/icon.png'
 
-const rasterTrayIconPattern = /\.(png|jpe?g|webp)$/i
+// 这些格式会先进裁剪弹窗转成 PNG（SVG 也在这里光栅化，Electron 的托盘不支持 SVG）
+const cropTrayIconPattern = /\.(png|jpe?g|webp|svg)$/i
 type TrayIconKey = 'customTrayIcon' | 'customTrayIconSysProxy' | 'customTrayIconTun'
+
+const hexToRgbColor = (hex: string): { red: number; green: number; blue: number } | undefined => {
+  const normalized = hex.trim().replace(/^#/, '')
+  if (!/^([0-9a-f]{3}|[0-9a-f]{6})$/i.test(normalized)) return undefined
+  const full =
+    normalized.length === 3
+      ? normalized
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : normalized
+  return {
+    red: parseInt(full.slice(0, 2), 16),
+    green: parseInt(full.slice(2, 4), 16),
+    blue: parseInt(full.slice(4, 6), 16)
+  }
+}
 
 const AppearanceConfig: React.FC = () => {
   const { appConfig, patchAppConfig } = useAppConfig()
@@ -56,6 +76,9 @@ const AppearanceConfig: React.FC = () => {
     customTrayIcon = '',
     customTrayIconSysProxy = '',
     customTrayIconTun = '',
+    trayIconAutoTint = false,
+    trayIconSysProxyColor = '#3b82f6',
+    trayIconTunColor = '#f59e0b',
     disableTray = false,
     showFloatingWindow: showFloating = false,
     spinFloatingIcon = true,
@@ -67,6 +90,7 @@ const AppearanceConfig: React.FC = () => {
   } = appConfig || {}
   const [localShowFloating, setLocalShowFloating] = useState(showFloating)
   const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const tintTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     resolveThemes().then((themes) => {
@@ -79,17 +103,20 @@ const AppearanceConfig: React.FC = () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current)
       }
+      if (tintTimeoutRef.current) {
+        clearTimeout(tintTimeoutRef.current)
+      }
     }
   }, [])
 
   const pickTrayIcon = async (key: TrayIconKey): Promise<void> => {
     const files = await getFilePath(
-      ['png', 'jpg', 'jpeg', 'webp', 'ico', 'icns'],
+      ['png', 'jpg', 'jpeg', 'webp', 'svg', 'ico', 'icns'],
       '选择托盘图标',
       '托盘图标'
     )
     if (!files?.[0]) return
-    if (rasterTrayIconPattern.test(files[0])) {
+    if (cropTrayIconPattern.test(files[0])) {
       setTrayIconCrop({ key, dataURL: await readImageFileDataURL(files[0]) })
       return
     }
@@ -102,11 +129,52 @@ const AppearanceConfig: React.FC = () => {
     await updateTrayIcon()
   }
 
+  // 用「默认托盘图标」（没设就用内置图标）生成另外两个状态的着色版本
+  const applyTrayIconAutoTint = async (
+    baseIcon: string,
+    sysProxyColor: string,
+    tunColor: string
+  ): Promise<void> => {
+    const sysProxyRgbColor = hexToRgbColor(sysProxyColor)
+    const tunRgbColor = hexToRgbColor(tunColor)
+    if (!sysProxyRgbColor || !tunRgbColor) return
+
+    try {
+      const baseURL = baseIcon.startsWith('data:image/')
+        ? baseIcon
+        : baseIcon
+          ? await readImageFileDataURL(baseIcon)
+          : defaultTrayIcon
+      const baseImage = await loadImageElement(baseURL)
+      const sysProxyIcon = recolorImageElementToPngDataURL(baseImage, sysProxyRgbColor)
+      const tunIcon = recolorImageElementToPngDataURL(baseImage, tunRgbColor)
+      if (!sysProxyIcon || !tunIcon) return
+
+      await patchAppConfig({
+        customTrayIconSysProxy: sysProxyIcon,
+        customTrayIconTun: tunIcon
+      })
+      await updateTrayIcon()
+    } catch (e) {
+      notify(e, { variant: 'danger' })
+    }
+  }
+
+  useEffect(() => {
+    if (!trayIconAutoTint || disableTray) return
+    if (tintTimeoutRef.current) clearTimeout(tintTimeoutRef.current)
+    tintTimeoutRef.current = setTimeout(() => {
+      tintTimeoutRef.current = null
+      void applyTrayIconAutoTint(customTrayIcon, trayIconSysProxyColor, trayIconTunColor)
+    }, 200)
+  }, [trayIconAutoTint, customTrayIcon, trayIconSysProxyColor, trayIconTunColor])
+
   const renderTrayIconSetting = (
     title: string,
     tooltip: string,
     key: TrayIconKey,
-    value: string
+    value: string,
+    managed = false
   ): React.ReactNode => (
     <SettingItem
       compatKey="legacy"
@@ -122,23 +190,34 @@ const AppearanceConfig: React.FC = () => {
       divider
     >
       <div className="flex min-w-0 max-w-[65%] items-center justify-end gap-2">
-        {value && (
-          <span className="truncate text-xs text-default-500">
-            {value.startsWith('data:image/') ? '已储存自定义图标' : value}
-          </span>
-        )}
-        <Button
-          size="sm"
-          onPress={() => pickTrayIcon(key)}
-          variant="secondary"
-          data-color="default"
-        >
-          {value ? '更换图标' : '选择图标'}
-        </Button>
-        {value && (
-          <Button size="sm" onPress={() => clearTrayIcon(key)} variant="ghost" data-color="default">
-            恢复默认
-          </Button>
+        {managed ? (
+          <span className="text-xs text-default-500">由「按状态自动着色」生成</span>
+        ) : (
+          <>
+            {value && (
+              <span className="truncate text-xs text-default-500">
+                {value.startsWith('data:image/') ? '已储存自定义图标' : value}
+              </span>
+            )}
+            <Button
+              size="sm"
+              onPress={() => pickTrayIcon(key)}
+              variant="secondary"
+              data-color="default"
+            >
+              {value ? '更换图标' : '选择图标'}
+            </Button>
+            {value && (
+              <Button
+                size="sm"
+                onPress={() => clearTrayIcon(key)}
+                variant="ghost"
+                data-color="default"
+              >
+                恢复默认
+              </Button>
+            )}
+          </>
         )}
       </div>
     </SettingItem>
@@ -260,21 +339,81 @@ const AppearanceConfig: React.FC = () => {
           <>
             {renderTrayIconSetting(
               '自定义托盘图标',
-              '设置后托盘会使用此图标；开启网速显示时会与网速合成。PNG、JPG、WebP 会先裁剪后保存。',
+              '设置后托盘会使用此图标；开启网速显示时会与网速合成。PNG、JPG、WebP、SVG 会先裁剪后保存为 PNG。',
               'customTrayIcon',
               customTrayIcon
             )}
+            <SettingItem
+              compatKey="legacy"
+              title="按状态自动着色"
+              actions={
+                <Tooltip delay={0}>
+                  <Button isIconOnly size="sm" variant="ghost" data-color="default">
+                    <IoIosHelpCircle className="text-lg" />
+                  </Button>
+                  <Tooltip.Content>
+                    {
+                      '用上面的默认图标自动生成系统代理、虚拟网卡两个状态的着色版本并写入对应的托盘图标；开启时请用下面的颜色调整，关掉后即可手动选择这两个图标。'
+                    }
+                  </Tooltip.Content>
+                </Tooltip>
+              }
+              divider
+            >
+              <Switch
+                size="sm"
+                isSelected={trayIconAutoTint}
+                onChange={async (v) => {
+                  await patchAppConfig({ trayIconAutoTint: v })
+                }}
+                aria-label="按状态自动着色"
+              >
+                <Switch.Content>
+                  <Switch.Control>
+                    <Switch.Thumb />
+                  </Switch.Control>
+                </Switch.Content>
+              </Switch>
+            </SettingItem>
+            {trayIconAutoTint && (
+              <>
+                <SettingItem compatKey="legacy" title="系统代理着色" divider>
+                  <input
+                    type="color"
+                    value={trayIconSysProxyColor}
+                    onChange={async (e) => {
+                      await patchAppConfig({ trayIconSysProxyColor: e.target.value })
+                    }}
+                    className="h-8 w-16 cursor-pointer rounded-md border border-default-200 bg-transparent"
+                    aria-label="系统代理着色"
+                  />
+                </SettingItem>
+                <SettingItem compatKey="legacy" title="虚拟网卡着色" divider>
+                  <input
+                    type="color"
+                    value={trayIconTunColor}
+                    onChange={async (e) => {
+                      await patchAppConfig({ trayIconTunColor: e.target.value })
+                    }}
+                    className="h-8 w-16 cursor-pointer rounded-md border border-default-200 bg-transparent"
+                    aria-label="虚拟网卡着色"
+                  />
+                </SettingItem>
+              </>
+            )}
             {renderTrayIconSetting(
               '托盘图标（系统代理）',
-              '开启系统代理时使用此图标，留空则沿用上面的默认图标。',
+              '开启系统代理时使用此图标，留空则沿用上面的默认图标；开启自动着色时由上面的颜色生成。',
               'customTrayIconSysProxy',
-              customTrayIconSysProxy
+              customTrayIconSysProxy,
+              trayIconAutoTint
             )}
             {renderTrayIconSetting(
               '托盘图标（虚拟网卡）',
-              '开启虚拟网卡时使用此图标；与系统代理同时开启时优先使用此图标。',
+              '开启虚拟网卡时使用此图标；与系统代理同时开启时优先使用此图标。开启自动着色时由上面的颜色生成。',
               'customTrayIconTun',
-              customTrayIconTun
+              customTrayIconTun,
+              trayIconAutoTint
             )}
           </>
         )}
