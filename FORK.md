@@ -2,7 +2,7 @@
 
 基于 [xishang0128/sparkle](https://github.com/xishang0128/sparkle)，加了「系统代理 / 虚拟网卡使用不同托盘图标」，
 并修了 Linux 下非 GNOME/KDE 桌面的系统代理开关。
-打包、安装和升级步骤见 [aur/sparkle-fork-git/README.md](aur/sparkle-fork-git/README.md)。
+打包、安装和升级步骤见 [aur/sparkle-wrisky-git/README.md](aur/sparkle-wrisky-git/README.md)。
 
 ## 用法
 
@@ -55,4 +55,4 @@ fork 在调起 `sparkle-service` 时给子进程补一个 GNOME 标识（`XDG_CU
 - 最常见的原因是图标数据其实是 SVG、MIME 却写成 `image/png`（Electron 的托盘不支持 SVG，会解出空图并回落到默认图标）。
   用设置里的「选择图标」重选一次即可，会自动转成 PNG。
 - Linux 上 `customTrayIcon*` 直接写 PNG 文件路径也可以；换了文件内容后切一次代理状态（或重新选一次图标）才会重新加载。
-- 系统代理报「不支持的桌面」：确认装的是 fork 构建（`sparkle-fork-git`），且已按上面步骤重新打包，见「Linux 系统代理」。
+- 系统代理报「不支持的桌面」：确认装的是 fork 构建（`sparkle-wrisky-git`），且已按上面步骤重新打包，见「Linux 系统代理」。
