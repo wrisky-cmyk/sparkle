@@ -44,6 +44,14 @@ sudo pacman -U sparkle-wrisky-git-*.pkg.tar.zst
 _src="git+file://$HOME/sparkle" makepkg -f
 ```
 
+`makepkg` 会记住 `sparkle/` 这个裸仓库 mirror 的来源，换了 `_src` 之后要同步改一下，
+否则会报 `... is not a clone of ...`：
+
+```bash
+git -C sparkle remote set-url origin file://$HOME/sparkle   # 用本地 checkout 构建
+git -C sparkle remote set-url origin https://github.com/wrisky-cmyk/sparkle.git   # 用 fork 上的代码
+```
+
 ## 说明
 
 - 本目录是仓库里唯一为 fork 维护的包，其余 `aur/*` 保持上游原样。
