@@ -1,8 +1,13 @@
 # wrisky 的 Sparkle fork
 
-基于 [xishang0128/sparkle](https://github.com/xishang0128/sparkle)，加了「系统代理 / 虚拟网卡使用不同托盘图标」，
-并修了 Linux 下非 GNOME/KDE 桌面的系统代理开关。
-打包、安装和升级步骤见 [aur/sparkle-wrisky-git/README.md](aur/sparkle-wrisky-git/README.md)。
+基于 [xishang0128/sparkle](https://github.com/xishang0128/sparkle)，目前比上游多三块东西：
+
+1. 系统代理 / 虚拟网卡用不同托盘图标，可以按状态自动着色（见下面「用法」）。
+2. 修了 Linux 下非 GNOME/KDE 桌面的系统代理开关（Hyprland、sway 之类）。
+3. 代理组里可以隐藏测速超时的节点，并让测通的节点排在最前面。
+
+打包、安装和升级步骤见 [aur/sparkle-wrisky-git/README.md](aur/sparkle-wrisky-git/README.md)
+（包名原为 `sparkle-fork-git`，2026-09 改名为 `sparkle-wrisky-git`）。
 
 ## 用法
 

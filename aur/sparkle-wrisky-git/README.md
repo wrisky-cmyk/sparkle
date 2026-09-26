@@ -25,17 +25,23 @@ sudo pacman -U sparkle-wrisky-git-*.pkg.tar.zst
 ## 以后升级上游代码
 
 ```bash
-# 1) 合并上游（首次先加 remote）
+# 1) 合并上游
 cd ~/sparkle
-git remote add upstream https://github.com/xishang0128/sparkle.git   # 只需一次
-git fetch upstream
-git merge upstream/master          # 或 git rebase upstream/master
-git push fork master
+git fetch origin                   # origin 就是上游 xishang0128/sparkle
+git merge origin/master            # 或 git rebase origin/master
+git push fork master               # fork 指向自己的 GitHub 仓库
 
 # 2) 重新打包并安装
 cd aur/sparkle-wrisky-git
 makepkg -f
 sudo pacman -U sparkle-wrisky-git-*.pkg.tar.zst
+```
+
+推 `fork` 时如果碰到 `Bad owner or permissions on /etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf`，
+那是系统里 systemd 那个 ssh drop-in 符号链接的属主/权限问题，跟仓库无关，绕过它：
+
+```bash
+GIT_SSH_COMMAND="ssh -F /dev/null" git push fork master
 ```
 
 想直接构建本地 checkout（改完不必先 push）：
@@ -57,3 +63,15 @@ git -C sparkle remote set-url origin https://github.com/wrisky-cmyk/sparkle.git 
 - 本目录是仓库里唯一为 fork 维护的包，其余 `aur/*` 保持上游原样。
 - `makepkg` 会在本目录留下 `src/`、`pkg/` 和裸仓库目录 `sparkle/`，已被根目录 `.gitignore` 忽略。
 - 想回上游版本：`sudo pacman -Rns sparkle-wrisky-git && paru -S sparkle-rolling-bin`。
+
+## 构建日志
+
+`makepkg` 一次跑下来上千行输出，本机装了 rtk 的话可以只留错误和警告
+（实测 300 行噪声日志：6246 字节 → 211 字节）：
+
+```bash
+rtk err makepkg -f
+_src="git+file://$HOME/sparkle" rtk err makepkg -f
+```
+
+需要原始输出（比如排查 `prepare()` 失败的具体报错）时用 `rtk proxy makepkg -f`。
