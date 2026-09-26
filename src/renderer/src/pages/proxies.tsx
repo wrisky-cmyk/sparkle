@@ -31,18 +31,23 @@ import CollapseInput from '@renderer/components/base/collapse-input'
 import { includesIgnoreCase } from '@renderer/utils/includes'
 import { useControledMihomoConfig } from '@renderer/hooks/use-controled-mihomo-config'
 import { runDelayTestsWithConcurrency } from '@renderer/utils/delay-test'
+import { getCachedProxyDelay, rememberProxyDelay } from '@renderer/utils/proxy-delay-cache'
 
 type ProxyLike = ControllerProxiesDetail | ControllerGroupDetail
 
 const EMPTY_PROXIES: ProxyLike[] = []
 
-function getProxyDelay(proxy: ProxyLike): number {
-  return proxy.history.length > 0 ? proxy.history[proxy.history.length - 1].delay : -1
+function getProxyDelay(proxy: ProxyLike, useRemembered = false): number {
+  if (proxy.history.length > 0) {
+    return proxy.history[proxy.history.length - 1].delay
+  }
+  if (!useRemembered) return -1
+  return getCachedProxyDelay(proxy.name) ?? -1
 }
 
-function compareProxyDelay(a: ProxyLike, b: ProxyLike): number {
-  const delayA = getProxyDelay(a)
-  const delayB = getProxyDelay(b)
+function compareProxyDelay(a: ProxyLike, b: ProxyLike, useRemembered = false): number {
+  const delayA = getProxyDelay(a, useRemembered)
+  const delayB = getProxyDelay(b, useRemembered)
   if (delayA === -1) return -1
   if (delayB === -1) return 1
   if (delayA === 0) return 1
@@ -50,8 +55,8 @@ function compareProxyDelay(a: ProxyLike, b: ProxyLike): number {
   return delayA - delayB
 }
 
-function getProxyDelayRank(proxy: ProxyLike): number {
-  const delay = getProxyDelay(proxy)
+function getProxyDelayRank(proxy: ProxyLike, useRemembered = false): number {
+  const delay = getProxyDelay(proxy, useRemembered)
   if (delay > 0) return 0
   return delay === -1 ? 1 : 2
 }
@@ -213,6 +218,8 @@ const Proxies: React.FC = () => {
     showProxyDetailTooltip = false,
     proxyDisplayOrder = 'default',
     hideTimeoutProxies = false,
+    rememberProxyDelay: rememberDelay = true,
+    retestSkipTimeout = true,
     autoCloseConnection = true,
     closeMode = 'all',
     proxyCols = 'auto',
@@ -322,11 +329,13 @@ const Proxies: React.FC = () => {
           ? group.all.filter((proxy) => proxy && includesIgnoreCase(proxy.name, searchText))
           : (group.all as ProxyLike[])
 
+        // 核心重启（切虚拟网卡等）后 mihomo 的 history 会清空，这里回落到记住的结果
+        const useRemembered = rememberDelay
         if (hideTimeoutProxies) {
-          groupProxies = groupProxies.filter((proxy) => getProxyDelay(proxy) !== 0)
+          groupProxies = groupProxies.filter((proxy) => getProxyDelay(proxy, useRemembered) !== 0)
         }
         if (proxyDisplayOrder === 'delay') {
-          groupProxies = [...groupProxies].sort(compareProxyDelay)
+          groupProxies = [...groupProxies].sort((a, b) => compareProxyDelay(a, b, useRemembered))
         }
         if (proxyDisplayOrder === 'name') {
           groupProxies = [...groupProxies].sort((a, b) => a.name.localeCompare(b.name))
@@ -334,7 +343,7 @@ const Proxies: React.FC = () => {
         if (hideTimeoutProxies) {
           // 测通的排最前，没测过的次之；组内保持上面选定的排序（sort 稳定）
           groupProxies = [...groupProxies].sort(
-            (a, b) => getProxyDelayRank(a) - getProxyDelayRank(b)
+            (a, b) => getProxyDelayRank(a, useRemembered) - getProxyDelayRank(b, useRemembered)
           )
         }
 
@@ -346,7 +355,25 @@ const Proxies: React.FC = () => {
       }
     })
     return { groupCounts, allProxies }
-  }, [groups, isOpenContent, proxyDisplayOrder, hideTimeoutProxies, cols, searchValue])
+  }, [
+    groups,
+    isOpenContent,
+    proxyDisplayOrder,
+    hideTimeoutProxies,
+    rememberDelay,
+    cols,
+    searchValue
+  ])
+
+  useEffect(() => {
+    if (!rememberDelay) return
+    groups.forEach((group) => {
+      group.all.forEach((proxy) => {
+        if (!proxy || proxy.history.length === 0) return
+        rememberProxyDelay(proxy.name, proxy.history[proxy.history.length - 1].delay)
+      })
+    })
+  }, [groups, rememberDelay])
 
   const onChangeProxy = useCallback(
     async (group: string, proxy: string): Promise<void> => {
@@ -426,7 +453,13 @@ const Proxies: React.FC = () => {
           return
         }
 
-        await runDelayTestsWithConcurrency(proxies, delayTestConcurrency, async (proxy) => {
+        // 上次测出超时的节点这次跳过，省得每次整组重测都等一遍超时
+        const testTargets = retestSkipTimeout
+          ? proxies.filter((proxy) => getCachedProxyDelay(proxy.name) !== 0)
+          : proxies
+        if (testTargets.length === 0) return
+
+        await runDelayTestsWithConcurrency(testTargets, delayTestConcurrency, async (proxy) => {
           try {
             await mihomoProxyDelay(proxy.name, testUrl, getProviderName(proxy))
           } catch {
@@ -445,6 +478,7 @@ const Proxies: React.FC = () => {
       groups,
       delayTestUseGroupApi,
       delayTestConcurrency,
+      retestSkipTimeout,
       hideTimeoutProxies,
       mutate,
       getDelayTestUrl,
@@ -610,6 +644,8 @@ const Proxies: React.FC = () => {
   onChangeProxyRef.current = onChangeProxy
   const proxyDisplayLayoutRef = useRef(proxyDisplayLayout)
   proxyDisplayLayoutRef.current = proxyDisplayLayout
+  const rememberDelayRef = useRef(rememberDelay)
+  rememberDelayRef.current = rememberDelay
   const showGroupSelectedProxyRef = useRef(showGroupSelectedProxy)
   showGroupSelectedProxyRef.current = showGroupSelectedProxy
   const showProxyDetailTooltipRef = useRef(showProxyDetailTooltip)
@@ -680,6 +716,7 @@ const Proxies: React.FC = () => {
     const pLayout = proxyDisplayLayoutRef.current
     const showGroupSelected = showGroupSelectedProxyRef.current
     const showTooltip = showProxyDetailTooltipRef.current
+    const useRemembered = rememberDelayRef.current
     let innerIndex = index
     for (let i = 0; i < groupIndex; i++) {
       innerIndex -= gc[i]
@@ -700,6 +737,7 @@ const Proxies: React.FC = () => {
           proxyDisplayLayout={pLayout}
           showGroupSelectedProxy={showGroupSelected}
           showProxyDetailTooltip={showTooltip}
+          rememberedDelay={useRemembered ? getCachedProxyDelay(proxy.name) : undefined}
           selected={proxy.name === grps[groupIndex].now}
         />
       )

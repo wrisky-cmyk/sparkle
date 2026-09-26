@@ -26,6 +26,8 @@ const ProxySettingDrawer: React.FC<Props> = (props) => {
     proxyCols = 'auto',
     proxyDisplayOrder = 'default',
     hideTimeoutProxies = false,
+    rememberProxyDelay = true,
+    retestSkipTimeout = true,
     groupDisplayLayout = 'single',
     proxyDisplayLayout = 'double',
     showGroupSelectedProxy = false,
@@ -163,6 +165,38 @@ const ProxySettingDrawer: React.FC<Props> = (props) => {
                   isSelected={hideTimeoutProxies}
                   onChange={(v) => {
                     patchAppConfig({ hideTimeoutProxies: v })
+                  }}
+                >
+                  <Switch.Content>
+                    <Switch.Control>
+                      <Switch.Thumb />
+                    </Switch.Control>
+                  </Switch.Content>
+                </Switch>
+              </SettingItem>
+              <SettingItem title="记住节点测速结果" {...settingItemProps} divider>
+                <Switch
+                  size="sm"
+                  aria-label="记住节点测速结果"
+                  isSelected={rememberProxyDelay}
+                  onChange={(v) => {
+                    patchAppConfig({ rememberProxyDelay: v })
+                  }}
+                >
+                  <Switch.Content>
+                    <Switch.Control>
+                      <Switch.Thumb />
+                    </Switch.Control>
+                  </Switch.Content>
+                </Switch>
+              </SettingItem>
+              <SettingItem title="重测跳过超时节点" {...settingItemProps} divider>
+                <Switch
+                  size="sm"
+                  aria-label="重测跳过超时节点"
+                  isSelected={retestSkipTimeout}
+                  onChange={(v) => {
+                    patchAppConfig({ retestSkipTimeout: v })
                   }}
                 >
                   <Switch.Content>

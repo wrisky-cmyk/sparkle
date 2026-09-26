@@ -37,6 +37,8 @@ export const defaultConfig: AppConfig = {
   useSubStore: true,
   proxyDisplayOrder: 'default',
   hideTimeoutProxies: false,
+  rememberProxyDelay: true,
+  retestSkipTimeout: true,
   autoCheckUpdate: false,
   autoCloseConnection: true,
   closeMode: 'all',

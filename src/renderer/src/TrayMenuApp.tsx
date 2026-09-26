@@ -6,6 +6,7 @@ import { useGroups } from './hooks/use-groups'
 import { mihomoChangeProxy, mihomoGroupDelay, mihomoCloseConnections } from './utils/ipc'
 import { useAppConfig } from './hooks/use-app-config'
 import { calcTraffic } from './utils/calc'
+import { getCachedProxyDelay, rememberProxyDelay } from './utils/proxy-delay-cache'
 
 interface TrafficData {
   up: number
@@ -15,7 +16,17 @@ interface TrafficData {
 const TrayMenuApp: React.FC = () => {
   const { groups, mutate } = useGroups()
   const { appConfig } = useAppConfig()
-  const { autoCloseConnection } = appConfig || {}
+  const { autoCloseConnection, rememberProxyDelay: rememberDelay = true } = appConfig || {}
+
+  useEffect(() => {
+    if (!rememberDelay) return
+    groups?.forEach((group) => {
+      group.all?.forEach((proxy) => {
+        if (!proxy || proxy.history.length === 0) return
+        rememberProxyDelay(proxy.name, proxy.history[proxy.history.length - 1].delay)
+      })
+    })
+  }, [groups, rememberDelay])
 
   const [traffic, setTraffic] = useState<TrafficData>({ up: 0, down: 0 })
   const [testingGroup, setTestingGroup] = useState<string | null>(null)
@@ -79,14 +90,16 @@ const TrayMenuApp: React.FC = () => {
 
   const getCurrentDelay = (group: ControllerMixedGroup): number | undefined => {
     const current = group.all?.find((p) => p.name === group.now)
-    if (!current?.history?.length) return undefined
+    if (!current) return undefined
+    if (!current.history?.length) return getCachedProxyDelay(current.name)
     return current.history[current.history.length - 1].delay
   }
 
   const getProxyDelay = (
     proxy: ControllerProxiesDetail | ControllerGroupDetail
   ): number | undefined => {
-    if (!proxy.history?.length) return undefined
+    // 核心重启后 history 会清空，回落到记住的上次结果
+    if (!proxy.history?.length) return getCachedProxyDelay(proxy.name)
     return proxy.history[proxy.history.length - 1].delay
   }
 
