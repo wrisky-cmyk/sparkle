@@ -50,6 +50,12 @@ function compareProxyDelay(a: ProxyLike, b: ProxyLike): number {
   return delayA - delayB
 }
 
+function getProxyDelayRank(proxy: ProxyLike): number {
+  const delay = getProxyDelay(proxy)
+  if (delay > 0) return 0
+  return delay === -1 ? 1 : 2
+}
+
 function getProviderName(proxy: ProxyLike): string | undefined {
   return 'provider-name' in proxy ? proxy['provider-name'] : undefined
 }
@@ -206,6 +212,7 @@ const Proxies: React.FC = () => {
     showGroupSelectedProxy = false,
     showProxyDetailTooltip = false,
     proxyDisplayOrder = 'default',
+    hideTimeoutProxies = false,
     autoCloseConnection = true,
     closeMode = 'all',
     proxyCols = 'auto',
@@ -315,11 +322,20 @@ const Proxies: React.FC = () => {
           ? group.all.filter((proxy) => proxy && includesIgnoreCase(proxy.name, searchText))
           : (group.all as ProxyLike[])
 
+        if (hideTimeoutProxies) {
+          groupProxies = groupProxies.filter((proxy) => getProxyDelay(proxy) !== 0)
+        }
         if (proxyDisplayOrder === 'delay') {
           groupProxies = [...groupProxies].sort(compareProxyDelay)
         }
         if (proxyDisplayOrder === 'name') {
           groupProxies = [...groupProxies].sort((a, b) => a.name.localeCompare(b.name))
+        }
+        if (hideTimeoutProxies) {
+          // 测通的排最前，没测过的次之；组内保持上面选定的排序（sort 稳定）
+          groupProxies = [...groupProxies].sort(
+            (a, b) => getProxyDelayRank(a) - getProxyDelayRank(b)
+          )
         }
 
         groupCounts.push(Math.ceil(groupProxies.length / cols))
@@ -330,7 +346,7 @@ const Proxies: React.FC = () => {
       }
     })
     return { groupCounts, allProxies }
-  }, [groups, isOpenContent, proxyDisplayOrder, cols, searchValue])
+  }, [groups, isOpenContent, proxyDisplayOrder, hideTimeoutProxies, cols, searchValue])
 
   const onChangeProxy = useCallback(
     async (group: string, proxy: string): Promise<void> => {
@@ -376,7 +392,11 @@ const Proxies: React.FC = () => {
       if (!group) return
 
       const openedProxies = allProxies[index] || EMPTY_PROXIES
-      const proxies = openedProxies.length > 0 ? openedProxies : group.all
+      // 隐藏超时节点时整组都测，否则被隐藏的节点永远测不回来
+      const proxies =
+        hideTimeoutProxies || openedProxies.length === 0
+          ? (group.all as ProxyLike[])
+          : openedProxies
       if (proxies.length === 0) return
 
       if (openedProxies.length === 0) {
@@ -425,6 +445,7 @@ const Proxies: React.FC = () => {
       groups,
       delayTestUseGroupApi,
       delayTestConcurrency,
+      hideTimeoutProxies,
       mutate,
       getDelayTestUrl,
       setGroupDelaying
@@ -510,7 +531,10 @@ const Proxies: React.FC = () => {
         i += groupCounts[j]
       }
       const proxies = allProxies[index].length > 0 ? allProxies[index] : groups[index].all
-      i += Math.floor(proxies.findIndex((proxy) => proxy.name === groups[index].now) / cols)
+      const currentIndex = proxies.findIndex((proxy) => proxy.name === groups[index].now)
+      if (currentIndex >= 0) {
+        i += Math.floor(currentIndex / cols)
+      }
       virtuosoRef.current?.scrollToIndex({
         index: Math.floor(i),
         align: 'start',

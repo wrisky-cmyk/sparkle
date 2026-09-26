@@ -48,6 +48,7 @@ interface AppConfig {
   disableNftables: boolean
   safePaths: string[]
   proxyDisplayOrder: 'default' | 'delay' | 'name'
+  hideTimeoutProxies?: boolean
   proxyDisplayLayout: 'hidden' | 'single' | 'double'
   groupDisplayLayout: 'hidden' | 'single' | 'double'
   showGroupSelectedProxy: boolean

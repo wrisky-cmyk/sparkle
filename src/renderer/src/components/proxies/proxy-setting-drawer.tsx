@@ -25,6 +25,7 @@ const ProxySettingDrawer: React.FC<Props> = (props) => {
   const {
     proxyCols = 'auto',
     proxyDisplayOrder = 'default',
+    hideTimeoutProxies = false,
     groupDisplayLayout = 'single',
     proxyDisplayLayout = 'double',
     showGroupSelectedProxy = false,
@@ -154,6 +155,22 @@ const ProxySettingDrawer: React.FC<Props> = (props) => {
                     })
                   }}
                 />
+              </SettingItem>
+              <SettingItem title="隐藏测试超时的节点" {...settingItemProps} divider>
+                <Switch
+                  size="sm"
+                  aria-label="隐藏测试超时的节点"
+                  isSelected={hideTimeoutProxies}
+                  onChange={(v) => {
+                    patchAppConfig({ hideTimeoutProxies: v })
+                  }}
+                >
+                  <Switch.Content>
+                    <Switch.Control>
+                      <Switch.Thumb />
+                    </Switch.Control>
+                  </Switch.Content>
+                </Switch>
               </SettingItem>
               <SettingItem title="代理组额外信息" {...settingItemProps} divider>
                 <SettingTabs

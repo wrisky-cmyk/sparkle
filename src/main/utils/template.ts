@@ -36,6 +36,7 @@ export const defaultConfig: AppConfig = {
   gistEncrypted: false,
   useSubStore: true,
   proxyDisplayOrder: 'default',
+  hideTimeoutProxies: false,
   autoCheckUpdate: false,
   autoCloseConnection: true,
   closeMode: 'all',
