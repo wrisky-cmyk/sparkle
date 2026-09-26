@@ -28,6 +28,39 @@ function registryArgs(useRegistry: boolean): string[] {
   return process.platform === 'win32' && useRegistry ? ['--use-registry'] : []
 }
 
+// sysproxy-go 在 Linux 上只认 GNOME 系和 KDE 系桌面（见其 sysproxy_linux.go），
+// Hyprland、sway 这类合成器会直接返回「不支持的桌面：xxx」，系统代理因此完全开不起来。
+// 这些合成器下 GTK/GLib 应用同样读 org.gnome.system.proxy，所以给子进程补一个 GNOME 标识，
+// 让它走 GNOME 分支。
+const supportedDesktops = [
+  'kde',
+  'gnome',
+  'gnome-classic',
+  'gnome-flashback',
+  'unity',
+  'x-cinnamon',
+  'cinnamon',
+  'xfce',
+  'mate',
+  'budgie',
+  'budgie-desktop',
+  'pantheon',
+  'niri'
+]
+
+function serviceSysproxyEnv(): NodeJS.ProcessEnv {
+  if (process.platform !== 'linux') return process.env
+
+  const desktop = process.env.XDG_CURRENT_DESKTOP ?? ''
+  const names = desktop
+    .split(':')
+    .map((name) => name.trim().toLowerCase())
+    .filter(Boolean)
+  if (names.some((name) => supportedDesktops.includes(name))) return process.env
+
+  return { ...process.env, XDG_CURRENT_DESKTOP: names.length > 0 ? `${desktop}:GNOME` : 'GNOME' }
+}
+
 export function triggerSysProxy(
   enable: boolean,
   onlyActiveDevice: boolean,
@@ -138,13 +171,17 @@ async function setSysProxy(onlyActiveDevice: boolean, useRegistry = false): Prom
         }
       } else {
         updateSysproxyGuardEventStream(false)
-        await execFilePromise(servicePath(), [
-          'sysproxy',
-          'pac',
-          '--url',
-          `http://${host || '127.0.0.1'}:${pacPort}/pac`,
-          ...registryArgs(useRegistry)
-        ])
+        await execFilePromise(
+          servicePath(),
+          [
+            'sysproxy',
+            'pac',
+            '--url',
+            `http://${host || '127.0.0.1'}:${pacPort}/pac`,
+            ...registryArgs(useRegistry)
+          ],
+          { env: serviceSysproxyEnv() }
+        )
       }
       break
     }
@@ -167,15 +204,19 @@ async function setSysProxy(onlyActiveDevice: boolean, useRegistry = false): Prom
           }
         } else {
           updateSysproxyGuardEventStream(false)
-          await execFilePromise(servicePath(), [
-            'sysproxy',
-            'proxy',
-            '--server',
-            `${host || '127.0.0.1'}:${port}`,
-            '--bypass',
-            process.platform === 'win32' ? bypass.join(';') : bypass.join(','),
-            ...registryArgs(useRegistry)
-          ])
+          await execFilePromise(
+            servicePath(),
+            [
+              'sysproxy',
+              'proxy',
+              '--server',
+              `${host || '127.0.0.1'}:${port}`,
+              '--bypass',
+              process.platform === 'win32' ? bypass.join(';') : bypass.join(','),
+              ...registryArgs(useRegistry)
+            ],
+            { env: serviceSysproxyEnv() }
+          )
         }
       } else {
         updateSysproxyGuardEventStream(false)
@@ -192,7 +233,9 @@ async function disableSysProxy(onlyActiveDevice: boolean, useRegistry = false): 
   const { settingMode = 'exec' } = sysProxy
   const execFilePromise = promisify(execFile)
   const disableWithExec = (): Promise<unknown> =>
-    execFilePromise(servicePath(), ['sysproxy', 'disable', ...registryArgs(useRegistry)])
+    execFilePromise(servicePath(), ['sysproxy', 'disable', ...registryArgs(useRegistry)], {
+      env: serviceSysproxyEnv()
+    })
 
   if (settingMode === 'service') {
     try {
