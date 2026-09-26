@@ -1,6 +1,6 @@
 pkgname=sparkle-wrisky-git
 _pkgname=sparkle
-pkgver=r1324.g6af6f7d
+pkgver=r1327.gbf68f40
 pkgrel=1
 pkgdesc="Another Mihomo GUI (wrisky fork)"
 arch=('x86_64' 'aarch64')
