@@ -1,6 +1,7 @@
 import React, { createContext, useContext, ReactNode, useEffect } from 'react'
 import useSWR from 'swr'
 import { notify } from '@renderer/utils/notification'
+import { markProfileUpdated } from '@renderer/utils/profile-updated'
 import {
   getProfileConfig,
   setProfileConfig as set,
@@ -39,8 +40,11 @@ export const ProfileConfigProvider: React.FC<{ children: ReactNode }> = ({ child
   }
 
   const addProfileItem = async (item: Partial<ProfileItem>): Promise<void> => {
+    // 列表上的刷新按钮就是走这条路重新拉取已有订阅
+    const updating = Boolean(item.id && profileConfig?.items.some((i) => i.id === item.id))
     try {
       await add(item)
+      if (updating) markProfileUpdated()
     } catch (e) {
       notify(e, { variant: 'danger' })
     } finally {

@@ -7,6 +7,7 @@ import {
   getImageDataURL,
   mihomoChangeProxy,
   mihomoCloseConnections,
+  mihomoGroups,
   mihomoGroupDelay,
   mihomoProxyDelay
 } from '@renderer/utils/ipc'
@@ -34,6 +35,7 @@ import { useControledMihomoConfig } from '@renderer/hooks/use-controled-mihomo-c
 import { useProfileConfig } from '@renderer/hooks/use-profile-config'
 import { runDelayTestsWithConcurrency } from '@renderer/utils/delay-test'
 import { notify } from '@renderer/utils/notification'
+import { subscribeProfileUpdated, takeProfileUpdated } from '@renderer/utils/profile-updated'
 import {
   addRemovedProxies,
   getRemovedProxyNames,
@@ -403,6 +405,69 @@ const Proxies: React.FC = () => {
     },
     [removeTimeoutProxies, profileId]
   )
+
+  // 更新订阅后自动测一遍：把各组的节点去重后统一测，不再靠手点
+  const autoTestingRef = useRef(false)
+  const runAutoDelayTest = useCallback(async (): Promise<void> => {
+    if (autoTestingRef.current) return
+    autoTestingRef.current = true
+    try {
+      const freshGroups = await mihomoGroups().catch(() => groups)
+      const targets: { proxy: ProxyLike; url?: string }[] = []
+      const seen = new Set<string>()
+      freshGroups.forEach((group) => {
+        group.all.forEach((proxy) => {
+          if (!proxy || seen.has(proxy.name) || removedProxies.has(proxy.name)) return
+          seen.add(proxy.name)
+          targets.push({ proxy, url: getDelayTestUrl(group) })
+        })
+      })
+      if (targets.length === 0) return
+
+      const timeoutNames: string[] = []
+      await runDelayTestsWithConcurrency(targets, delayTestConcurrency, async (target) => {
+        try {
+          await mihomoProxyDelay(target.proxy.name, target.url, getProviderName(target.proxy))
+        } catch {
+          timeoutNames.push(target.proxy.name)
+        }
+      })
+
+      if (timeoutNames.length >= targets.length) {
+        // 一个都没通，多半是测速地址或网络的问题，不删
+        notify('自动测速全部超时，未删除节点（请检查网络或测速地址）', { variant: 'warning' })
+      } else if (timeoutNames.length > 0) {
+        recordTimeoutProxies(timeoutNames)
+        notify(`自动测速完成，隐藏 ${timeoutNames.length} 个超时节点`, { variant: 'success' })
+      }
+      mutate()
+    } catch (e) {
+      notify(e, { variant: 'danger' })
+    } finally {
+      autoTestingRef.current = false
+    }
+  }, [groups, removedProxies, delayTestConcurrency, getDelayTestUrl, recordTimeoutProxies, mutate])
+
+  // 更新订阅后自动测一遍（开关关着就不测，名单本来也不生效）
+  const [autoTestPending, setAutoTestPending] = useState(false)
+  useEffect(() => {
+    const onProfileUpdated = (): void => setAutoTestPending(true)
+    if (takeProfileUpdated()) setAutoTestPending(true)
+    return subscribeProfileUpdated(onProfileUpdated)
+  }, [])
+  useEffect(() => {
+    if (!autoTestPending) return
+    if (!removeTimeoutProxies) {
+      setAutoTestPending(false)
+      return
+    }
+    // 等核心重启完、节点列表刷新出来；groups 每次更新都会把这个计时器往后推
+    const timer = setTimeout(() => {
+      setAutoTestPending(false)
+      void runAutoDelayTest()
+    }, 2500)
+    return () => clearTimeout(timer)
+  }, [autoTestPending, removeTimeoutProxies, groups, runAutoDelayTest])
 
   const onProxyDelay = useCallback(
     async (proxy: ProxyLike, group?: ControllerMixedGroup): Promise<ControllerProxiesDelay> => {
