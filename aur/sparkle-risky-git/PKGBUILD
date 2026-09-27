@@ -1,6 +1,6 @@
 pkgname=sparkle-risky-git
 _pkgname=sparkle
-pkgver=r1327.gbf68f40
+pkgver=r1334.gb5cb3c8
 pkgrel=1
 pkgdesc="Another Mihomo GUI (risky fork)"
 arch=('x86_64' 'aarch64')
