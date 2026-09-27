@@ -25,12 +25,11 @@ sudo pacman -U sparkle-risky-git-*.pkg.tar.zst
 ## 以后升级上游代码
 
 ```bash
-# 1) 合并上游（首次先加 remote）
+# 1) 合并上游
 cd ~/sparkle
-git remote add upstream https://github.com/xishang0128/sparkle.git   # 只需一次
-git fetch upstream
-git merge upstream/master          # 或 git rebase upstream/master
-git push fork master
+git fetch origin                   # origin 就是上游 xishang0128/sparkle
+git merge origin/master            # 或 git rebase origin/master
+git push fork master               # fork 指向自己的 GitHub 仓库
 
 # 2) 重新打包并安装
 cd aur/sparkle-risky-git
