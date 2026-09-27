@@ -40,8 +40,11 @@ export const ProfileConfigProvider: React.FC<{ children: ReactNode }> = ({ child
   }
 
   const addProfileItem = async (item: Partial<ProfileItem>): Promise<void> => {
+    // 列表上的刷新按钮就是走这条路更新已有订阅，节点会整套换新
+    const updating = Boolean(item.id && profileConfig?.items.some((i) => i.id === item.id))
     try {
       await add(item)
+      if (updating && item.id) clearRemovedProxies(item.id)
     } catch (e) {
       notify(e, { variant: 'danger' })
     } finally {

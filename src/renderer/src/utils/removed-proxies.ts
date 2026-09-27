@@ -1,44 +1,15 @@
 const STORAGE_KEY = 'removedTimeoutProxies'
 
 // 不同订阅的节点名会撞车，所以名单按配置（订阅）id 分开存。
-// clearedAt 是上次手动更新订阅的时间，比它更早的测速记录不再算数（节点都换新了）
-interface RemovedProxyEntry {
-  names: string[]
-  clearedAt: number
-}
-
-type RemovedProxyStore = Record<string, RemovedProxyEntry>
-
-export interface RemovedProxyState {
-  names: ReadonlySet<string>
-  clearedAt: number
-}
-
-const EMPTY_STATE: RemovedProxyState = { names: new Set<string>(), clearedAt: 0 }
+// 名单只由页面上真正发起的测速结果决定（超时的加进来），不扫 mihomo 的 history，
+// 免得 url-test 组的后台健康检查把节点顺手删掉。
+type RemovedProxyStore = Record<string, string[]>
 
 let store: RemovedProxyStore | undefined
 let revision = 0
 const listeners = new Set<() => void>()
-const snapshotCache = new Map<string, { revision: number; state: RemovedProxyState }>()
-
-function normalizeEntry(value: unknown): RemovedProxyEntry | undefined {
-  // 旧版本存的是纯字符串数组，读出来补一个 clearedAt
-  if (Array.isArray(value)) {
-    return { names: toNames(value), clearedAt: 0 }
-  }
-  if (!value || typeof value !== 'object') return undefined
-  const entry = value as Partial<RemovedProxyEntry>
-  return {
-    names: toNames(entry.names),
-    clearedAt:
-      typeof entry.clearedAt === 'number' && Number.isFinite(entry.clearedAt) ? entry.clearedAt : 0
-  }
-}
-
-function toNames(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  return value.filter((name): name is string => typeof name === 'string')
-}
+const snapshotCache = new Map<string, { revision: number; names: ReadonlySet<string> }>()
+const EMPTY_NAMES: ReadonlySet<string> = new Set<string>()
 
 function readStore(): RemovedProxyStore {
   try {
@@ -48,10 +19,10 @@ function readStore(): RemovedProxyStore {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
     const next: RemovedProxyStore = {}
     Object.entries(parsed as Record<string, unknown>).forEach(([profileId, value]) => {
-      const entry = normalizeEntry(value)
-      if (!entry) return
-      if (entry.names.length === 0 && entry.clearedAt === 0) return
-      next[profileId] = entry
+      if (!Array.isArray(value)) return
+      const names = value.filter((name): name is string => typeof name === 'string')
+      if (names.length === 0) return
+      next[profileId] = names
     })
     return next
   } catch {
@@ -82,22 +53,19 @@ export function subscribeRemovedProxies(listener: () => void): () => void {
 }
 
 // 同一版本内保持同一个引用，配合 useSyncExternalStore 用
-export function getRemovedProxyState(profileId: string): RemovedProxyState {
+export function getRemovedProxyNames(profileId: string): ReadonlySet<string> {
   const cached = snapshotCache.get(profileId)
-  if (cached && cached.revision === revision) return cached.state
-  const entry = getStore()[profileId]
-  const state: RemovedProxyState = entry
-    ? { names: new Set(entry.names), clearedAt: entry.clearedAt }
-    : EMPTY_STATE
-  snapshotCache.set(profileId, { revision, state })
+  if (cached && cached.revision === revision) return cached.names
+  const names = getStore()[profileId]
+  const state = names && names.length > 0 ? new Set(names) : EMPTY_NAMES
+  snapshotCache.set(profileId, { revision, names: state })
   return state
 }
 
 export function addRemovedProxies(profileId: string, names: readonly string[]): void {
   if (names.length === 0) return
   const current = getStore()
-  const entry = current[profileId] ?? { names: [], clearedAt: 0 }
-  const merged = new Set(entry.names)
+  const merged = new Set(current[profileId] ?? [])
   let changed = false
   names.forEach((name) => {
     if (merged.has(name)) return
@@ -105,13 +73,14 @@ export function addRemovedProxies(profileId: string, names: readonly string[]): 
     changed = true
   })
   if (!changed) return
-  current[profileId] = { names: [...merged], clearedAt: entry.clearedAt }
+  current[profileId] = [...merged]
   commit()
 }
 
-// 手动更新订阅：名单清空，同时记下时间，更新前的测速记录不再算数
+// 手动更新订阅后节点整套换新，名单清空，全都重新测
 export function clearRemovedProxies(profileId: string): void {
   const current = getStore()
-  current[profileId] = { names: [], clearedAt: Date.now() }
+  if (!(profileId in current)) return
+  delete current[profileId]
   commit()
 }

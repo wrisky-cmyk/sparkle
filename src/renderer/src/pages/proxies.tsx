@@ -35,7 +35,7 @@ import { useProfileConfig } from '@renderer/hooks/use-profile-config'
 import { runDelayTestsWithConcurrency } from '@renderer/utils/delay-test'
 import {
   addRemovedProxies,
-  getRemovedProxyState,
+  getRemovedProxyNames,
   subscribeRemovedProxies
 } from '@renderer/utils/removed-proxies'
 
@@ -246,10 +246,9 @@ const Proxies: React.FC = () => {
   const [delaying, setDelaying] = useState(Array(groups.length).fill(false))
   // 每个订阅一份「测速超时被删掉」名单，记在本地；手动更新订阅后清空
   const profileId = profileConfig?.current ?? ''
-  const removedProxyState = useSyncExternalStore(subscribeRemovedProxies, () =>
-    getRemovedProxyState(profileId)
+  const removedProxies = useSyncExternalStore(subscribeRemovedProxies, () =>
+    getRemovedProxyNames(profileId)
   )
-  const removedProxies = removedProxyState.names
   const [searchValue, setSearchValue] = useState<string[]>(() => {
     if (
       rememberProxyGroupOpenState &&
@@ -370,23 +369,6 @@ const Proxies: React.FC = () => {
     searchValue
   ])
 
-  useEffect(() => {
-    if (!removeTimeoutProxies) return
-    const timeoutNames: string[] = []
-    groups.forEach((group) => {
-      group.all.forEach((proxy) => {
-        if (!proxy || proxy.history.length === 0) return
-        const latest = proxy.history[proxy.history.length - 1]
-        if (latest.delay !== 0) return
-        // 手动更新订阅之前的测速记录不算数，更新回来的节点要重新测
-        const testedAt = Date.parse(latest.time)
-        if (!Number.isNaN(testedAt) && testedAt < removedProxyState.clearedAt) return
-        timeoutNames.push(proxy.name)
-      })
-    })
-    addRemovedProxies(profileId, timeoutNames)
-  }, [groups, removeTimeoutProxies, profileId, removedProxyState.clearedAt])
-
   const onChangeProxy = useCallback(
     async (group: string, proxy: string): Promise<void> => {
       await mihomoChangeProxy(group, proxy)
@@ -410,11 +392,26 @@ const Proxies: React.FC = () => {
     [delayTestUrlScope]
   )
 
+  // 只把页面上真正测出来的超时节点记进名单（不扫 mihomo 的 history，
+  // 否则 url-test 组的后台健康检查也会把节点删掉）
+  const recordTimeoutProxies = useCallback(
+    (names: readonly string[]): void => {
+      if (!removeTimeoutProxies || names.length === 0) return
+      addRemovedProxies(profileId, names)
+    },
+    [removeTimeoutProxies, profileId]
+  )
+
   const onProxyDelay = useCallback(
     async (proxy: ProxyLike, group?: ControllerMixedGroup): Promise<ControllerProxiesDelay> => {
-      return await mihomoProxyDelay(proxy.name, getDelayTestUrl(group), getProviderName(proxy))
+      try {
+        return await mihomoProxyDelay(proxy.name, getDelayTestUrl(group), getProviderName(proxy))
+      } catch (e) {
+        recordTimeoutProxies([proxy.name])
+        throw e
+      }
     },
-    [getDelayTestUrl]
+    [getDelayTestUrl, recordTimeoutProxies]
   )
 
   const setGroupDelaying = useCallback((index: number, value: boolean): void => {
@@ -461,17 +458,24 @@ const Proxies: React.FC = () => {
 
       try {
         if (delayTestUseGroupApi) {
-          await mihomoGroupDelay(group.name, testUrl)
+          const result = await mihomoGroupDelay(group.name, testUrl)
+          // 组测速接口超时的节点 delay 是 0（或没有条目），只认这次测到的节点
+          const timeoutNames = proxies
+            .filter((proxy) => !(result[proxy.name] > 0))
+            .map((proxy) => proxy.name)
+          recordTimeoutProxies(timeoutNames)
           return
         }
 
+        const timeoutNames: string[] = []
         await runDelayTestsWithConcurrency(proxies, delayTestConcurrency, async (proxy) => {
           try {
             await mihomoProxyDelay(proxy.name, testUrl, getProviderName(proxy))
           } catch {
-            // ignore
+            timeoutNames.push(proxy.name)
           }
         })
+        recordTimeoutProxies(timeoutNames)
       } catch {
         // ignore
       } finally {
@@ -486,6 +490,7 @@ const Proxies: React.FC = () => {
       delayTestConcurrency,
       removeTimeoutProxies,
       removedProxies,
+      recordTimeoutProxies,
       mutate,
       getDelayTestUrl,
       setGroupDelaying
