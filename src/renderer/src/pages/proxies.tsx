@@ -39,6 +39,7 @@ import { subscribeProfileUpdated, takeProfileUpdated } from '@renderer/utils/pro
 import {
   addRemovedProxies,
   getRemovedProxyNames,
+  removeRemovedProxies,
   syncExcludedProxies,
   subscribeRemovedProxies
 } from '@renderer/utils/removed-proxies'
@@ -401,14 +402,23 @@ const Proxies: React.FC = () => {
     [delayTestUrlScope]
   )
 
-  // 只把页面上真正测出来的超时节点记进名单（不扫 mihomo 的 history，
-  // 否则 url-test 组的后台健康检查也会把节点删掉）
+  // 名单就是「上一次测速的结果」：只记页面上真正测出来的结果（不扫 mihomo 的
+  // history，否则 url-test 的后台健康检查也会把节点删掉），超时的加进来、通的去掉。
+  // 开关只管这份名单用不用（隐藏 + 从核心配置里排除），记录本身一直更新。
   const recordTimeoutProxies = useCallback(
     (names: readonly string[]): void => {
-      if (!removeTimeoutProxies || names.length === 0) return
+      if (names.length === 0) return
       addRemovedProxies(profileId, names)
     },
-    [removeTimeoutProxies, profileId]
+    [profileId]
+  )
+
+  const recordRecoveredProxies = useCallback(
+    (names: readonly string[]): void => {
+      if (names.length === 0) return
+      removeRemovedProxies(profileId, names)
+    },
+    [profileId]
   )
 
   // 更新订阅后自动测一遍：把各组的节点去重后统一测，不再靠手点
@@ -430,9 +440,11 @@ const Proxies: React.FC = () => {
       if (targets.length === 0) return
 
       const timeoutNames: string[] = []
+      const okNames: string[] = []
       await runDelayTestsWithConcurrency(targets, delayTestConcurrency, async (target) => {
         try {
           await mihomoProxyDelay(target.proxy.name, target.url, getProviderName(target.proxy))
+          okNames.push(target.proxy.name)
         } catch {
           timeoutNames.push(target.proxy.name)
         }
@@ -441,9 +453,12 @@ const Proxies: React.FC = () => {
       if (timeoutNames.length >= targets.length) {
         // 一个都没通，多半是测速地址或网络的问题，不删
         notify('自动测速全部超时，未删除节点（请检查网络或测速地址）', { variant: 'warning' })
-      } else if (timeoutNames.length > 0) {
+      } else {
         recordTimeoutProxies(timeoutNames)
-        notify(`自动测速完成，隐藏 ${timeoutNames.length} 个超时节点`, { variant: 'success' })
+        recordRecoveredProxies(okNames)
+        if (timeoutNames.length > 0) {
+          notify(`自动测速完成，隐藏 ${timeoutNames.length} 个超时节点`, { variant: 'success' })
+        }
       }
       mutate()
     } catch (e) {
@@ -451,7 +466,15 @@ const Proxies: React.FC = () => {
     } finally {
       autoTestingRef.current = false
     }
-  }, [groups, removedProxies, delayTestConcurrency, getDelayTestUrl, recordTimeoutProxies, mutate])
+  }, [
+    groups,
+    removedProxies,
+    delayTestConcurrency,
+    getDelayTestUrl,
+    recordTimeoutProxies,
+    recordRecoveredProxies,
+    mutate
+  ])
 
   // 更新订阅后自动测一遍（开关关着就不测，名单本来也不生效）
   const [autoTestPending, setAutoTestPending] = useState(false)
@@ -477,13 +500,19 @@ const Proxies: React.FC = () => {
   const onProxyDelay = useCallback(
     async (proxy: ProxyLike, group?: ControllerMixedGroup): Promise<ControllerProxiesDelay> => {
       try {
-        return await mihomoProxyDelay(proxy.name, getDelayTestUrl(group), getProviderName(proxy))
+        const result = await mihomoProxyDelay(
+          proxy.name,
+          getDelayTestUrl(group),
+          getProviderName(proxy)
+        )
+        recordRecoveredProxies([proxy.name])
+        return result
       } catch (e) {
         recordTimeoutProxies([proxy.name])
         throw e
       }
     },
-    [getDelayTestUrl, recordTimeoutProxies]
+    [getDelayTestUrl, recordTimeoutProxies, recordRecoveredProxies]
   )
 
   const setGroupDelaying = useCallback((index: number, value: boolean): void => {
@@ -547,18 +576,24 @@ const Proxies: React.FC = () => {
             .filter((proxy) => !(result[proxy.name] > 0))
             .map((proxy) => proxy.name)
           recordGroupTimeouts(timeoutNames)
+          recordRecoveredProxies(
+            proxies.filter((proxy) => result[proxy.name] > 0).map((proxy) => proxy.name)
+          )
           return
         }
 
         const timeoutNames: string[] = []
+        const okNames: string[] = []
         await runDelayTestsWithConcurrency(proxies, delayTestConcurrency, async (proxy) => {
           try {
             await mihomoProxyDelay(proxy.name, testUrl, getProviderName(proxy))
+            okNames.push(proxy.name)
           } catch {
             timeoutNames.push(proxy.name)
           }
         })
         recordGroupTimeouts(timeoutNames)
+        recordRecoveredProxies(okNames)
       } catch {
         // ignore
       } finally {

@@ -80,6 +80,23 @@ export function addRemovedProxies(profileId: string, names: readonly string[]): 
   commit()
 }
 
+// 测通的从名单里去掉：名单是「上一次测速的结果」，通了的自然不该再算超时
+export function removeRemovedProxies(profileId: string, names: readonly string[]): void {
+  if (names.length === 0) return
+  const current = getStore()
+  const existing = current[profileId]
+  if (!existing || existing.length === 0) return
+  const recovered = new Set(names)
+  const kept = existing.filter((name) => !recovered.has(name))
+  if (kept.length === existing.length) return
+  if (kept.length === 0) {
+    delete current[profileId]
+  } else {
+    current[profileId] = kept
+  }
+  commit()
+}
+
 // 名单不随订阅更新或切换系统代理清空：更新后新出现的节点（不在名单里的）照常显示，
 // 之前测出超时的节点继续隐藏，不用再白测一轮
 
