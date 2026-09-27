@@ -1,7 +1,12 @@
 # risky 的 Sparkle fork
 
-基于 [xishang0128/sparkle](https://github.com/xishang0128/sparkle)，加了「系统代理 / 虚拟网卡使用不同托盘图标」，
-并修了 Linux 下非 GNOME/KDE 桌面的系统代理开关。
+基于 [xishang0128/sparkle](https://github.com/xishang0128/sparkle)，目前比上游多四块东西：
+
+1. 系统代理 / 虚拟网卡用不同托盘图标，可以按状态自动着色（见下面「用法」）。
+2. 修了 Linux 下非 GNOME/KDE 桌面的系统代理开关（Hyprland、sway 之类）。
+3. 代理组里可以「测速后删除超时节点」：超时的直接从列表里删掉、重测也不再测它们，
+   切系统代理 / 开关虚拟网卡后不用整组重测（见下）。
+
 打包、安装和升级步骤见 [aur/sparkle-risky-git/README.md](aur/sparkle-risky-git/README.md)
 （包名原为 `sparkle-fork-git` → `sparkle-wrisky-git`，现为 `sparkle-risky-git`）。
 
@@ -26,16 +31,19 @@
 | `trayIconAutoTint`       | `false`   | 用默认图标自动生成上面两个状态的着色版本        |
 | `trayIconSysProxyColor`  | `#3b82f6` | 自动着色时系统代理用的颜色                      |
 | `trayIconTunColor`       | `#f59e0b` | 自动着色时虚拟网卡用的颜色                      |
-| `hideTimeoutProxies`     | `false`   | 代理组里隐藏测速超时的节点，测通的节点排最前面  |
+| `removeTimeoutProxies`   | `false`   | 测速后把超时节点从列表里删掉，重测也不再测它们  |
 
-## 代理组节点显示
+## 测速后删除超时节点
 
-设置 → 代理组页右上角齿轮 →「隐藏测试超时的节点」（`hideTimeoutProxies`）：
+设置 → 代理组页右上角齿轮 →「测速后删除超时节点」（`removeTimeoutProxies`）：
 
-- 打开后，最近一次延迟测试超时（mihomo 记为 `delay: 0`）的节点不再显示，测出延迟的节点排在
-  同组最前面，没测过的节点跟在后面；每组内部仍按「节点排序方式」排。
-- 点整组测速时会测该组全部节点（含当前被隐藏的），所以节点恢复后刷新一下就会重新出现。
-- 需要重新看到全部节点时，把这个开关关掉即可（延迟记录本身不会被清掉）。
+- 打开后，最近一次测速超时（mihomo 记为 `delay: 0`）的节点直接从列表里消失，测出延迟的节点
+  排在同组最前面，没测过的跟在后面；每组内部仍按「节点排序方式」排。
+- 点整组测速只测还留在列表里的节点，删掉的不再浪费时间干等超时。
+- 删掉的名单存在本地（`localStorage` 的 `removedTimeoutProxies`，按订阅 id 分开存，不过期）：
+  切系统代理、开关虚拟网卡、重启应用，甚至切到别的订阅再切回来，它们依然是被删掉的状态。
+- 只有自己手动更新订阅才会清空名单、让节点回到待测；关掉开关只是暂时把它们显示回来，
+  名单还在，重新打开还是删掉的状态。
 
 ## Linux 系统代理
 
