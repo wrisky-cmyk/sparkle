@@ -19,6 +19,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode
 } from 'react'
 import { GroupedVirtuoso, GroupedVirtuosoHandle } from 'react-virtuoso'
@@ -32,7 +33,11 @@ import { includesIgnoreCase } from '@renderer/utils/includes'
 import { useControledMihomoConfig } from '@renderer/hooks/use-controled-mihomo-config'
 import { useProfileConfig } from '@renderer/hooks/use-profile-config'
 import { runDelayTestsWithConcurrency } from '@renderer/utils/delay-test'
-import { loadRemovedProxies, saveRemovedProxies } from '@renderer/utils/removed-proxies'
+import {
+  addRemovedProxies,
+  getRemovedProxyState,
+  subscribeRemovedProxies
+} from '@renderer/utils/removed-proxies'
 
 type ProxyLike = ControllerProxiesDetail | ControllerGroupDetail
 
@@ -241,15 +246,10 @@ const Proxies: React.FC = () => {
   const [delaying, setDelaying] = useState(Array(groups.length).fill(false))
   // 每个订阅一份「测速超时被删掉」名单，记在本地；手动更新订阅后清空
   const profileId = profileConfig?.current ?? ''
-  const [removedProfileId, setRemovedProfileId] = useState(profileId)
-  const [removedProxies, setRemovedProxies] = useState<Set<string>>(() =>
-    loadRemovedProxies(profileId)
+  const removedProxyState = useSyncExternalStore(subscribeRemovedProxies, () =>
+    getRemovedProxyState(profileId)
   )
-  if (removedProfileId !== profileId) {
-    // 换订阅就换一份名单
-    setRemovedProfileId(profileId)
-    setRemovedProxies(loadRemovedProxies(profileId))
-  }
+  const removedProxies = removedProxyState.names
   const [searchValue, setSearchValue] = useState<string[]>(() => {
     if (
       rememberProxyGroupOpenState &&
@@ -376,24 +376,16 @@ const Proxies: React.FC = () => {
     groups.forEach((group) => {
       group.all.forEach((proxy) => {
         if (!proxy || proxy.history.length === 0) return
-        if (proxy.history[proxy.history.length - 1].delay !== 0) return
+        const latest = proxy.history[proxy.history.length - 1]
+        if (latest.delay !== 0) return
+        // 手动更新订阅之前的测速记录不算数，更新回来的节点要重新测
+        const testedAt = Date.parse(latest.time)
+        if (!Number.isNaN(testedAt) && testedAt < removedProxyState.clearedAt) return
         timeoutNames.push(proxy.name)
       })
     })
-    if (timeoutNames.length === 0) return
-    setRemovedProxies((prev) => {
-      const next = new Set(prev)
-      let changed = false
-      timeoutNames.forEach((name) => {
-        if (next.has(name)) return
-        next.add(name)
-        changed = true
-      })
-      if (!changed) return prev
-      saveRemovedProxies(profileId, next)
-      return next
-    })
-  }, [groups, removeTimeoutProxies, profileId])
+    addRemovedProxies(profileId, timeoutNames)
+  }, [groups, removeTimeoutProxies, profileId, removedProxyState.clearedAt])
 
   const onChangeProxy = useCallback(
     async (group: string, proxy: string): Promise<void> => {
