@@ -182,6 +182,10 @@ export async function updateProfileItem(item: ProfileItem): Promise<void> {
   return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('updateProfileItem', item))
 }
 
+export async function setExcludedProxies(store: Record<string, string[]>): Promise<void> {
+  return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('setExcludedProxies', store))
+}
+
 export async function getProfileStr(id: string): Promise<string> {
   return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('getProfileStr', id))
 }

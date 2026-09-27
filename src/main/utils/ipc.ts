@@ -43,6 +43,7 @@ import {
   setProfileStr,
   updateProfileItem,
   setProfileConfig,
+  setExcludedProxyStore,
   getOverrideConfig,
   setOverrideConfig,
   getOverrideItem,
@@ -278,6 +279,7 @@ export function registerIpcMainHandlers(): void {
   )
   ipcMain.handle('getProfileConfig', (_e, force) => ipcErrorWrapper(getProfileConfig)(force))
   ipcMain.handle('setProfileConfig', (_e, config) => ipcErrorWrapper(setProfileConfig)(config))
+  ipcMain.handle('setExcludedProxies', (_e, store) => ipcErrorWrapper(setExcludedProxyStore)(store))
   ipcMain.handle('getCurrentProfileItem', ipcErrorWrapper(getCurrentProfileItem))
   ipcMain.handle('getProfileItem', (_e, id) => ipcErrorWrapper(getProfileItem)(id))
   ipcMain.handle('getProfileStr', (_e, id) => ipcErrorWrapper(getProfileStr)(id))

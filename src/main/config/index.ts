@@ -1,4 +1,9 @@
 export { getAppConfig, patchAppConfig } from './app'
+export {
+  getExcludedProxyStore,
+  setExcludedProxyStore,
+  applyExcludedProxies
+} from './excludedProxies'
 export { getControledMihomoConfig, patchControledMihomoConfig } from './controledMihomo'
 export {
   getProfile,

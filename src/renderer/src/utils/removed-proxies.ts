@@ -1,3 +1,5 @@
+import { setExcludedProxies } from '@renderer/utils/ipc'
+
 // v1 的名单可能混进整组误判（核心刚重启时全超时）的记录，换 key 让旧数据作废
 const STORAGE_KEY = 'removedTimeoutProxies2'
 
@@ -80,3 +82,11 @@ export function addRemovedProxies(profileId: string, names: readonly string[]): 
 
 // 名单不随订阅更新或切换系统代理清空：更新后新出现的节点（不在名单里的）照常显示，
 // 之前测出超时的节点继续隐藏，不用再白测一轮
+
+// 同步给主进程：它生成核心配置时会把名单里的节点从各代理组去掉，
+// 自动选择组就不会再去健康检查或选中它们。开关关掉时推空名单，等于全部放回来。
+export function syncExcludedProxies(enabled: boolean): void {
+  void setExcludedProxies(enabled ? getStore() : {}).catch(() => {
+    // 通知失败不影响页面显示
+  })
+}

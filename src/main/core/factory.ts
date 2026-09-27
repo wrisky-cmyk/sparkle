@@ -6,7 +6,8 @@ import {
   getOverride,
   getOverrideItem,
   getOverrideConfig,
-  getAppConfig
+  getAppConfig,
+  applyExcludedProxies
 } from '../config'
 import {
   mihomoProfileWorkDir,
@@ -60,6 +61,8 @@ export async function generateProfile(): Promise<void> {
   }
 
   await cleanProfile(profile, controlDns, controlSniff)
+  // 测速删掉的超时节点从代理组里去掉，自动选择组就不会再碰它们
+  await applyExcludedProxies(profile, current)
 
   runtimeConfig = profile
   runtimeConfigStr = stringifyYaml(profile)

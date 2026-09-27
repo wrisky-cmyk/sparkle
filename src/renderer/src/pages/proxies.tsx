@@ -39,6 +39,7 @@ import { subscribeProfileUpdated, takeProfileUpdated } from '@renderer/utils/pro
 import {
   addRemovedProxies,
   getRemovedProxyNames,
+  syncExcludedProxies,
   subscribeRemovedProxies
 } from '@renderer/utils/removed-proxies'
 
@@ -253,6 +254,10 @@ const Proxies: React.FC = () => {
   const removedProxies = useSyncExternalStore(subscribeRemovedProxies, () =>
     getRemovedProxyNames(profileId)
   )
+  // 名单变化或开关切换时同步给主进程，由它在下一次生成核心配置时排除这些节点
+  useEffect(() => {
+    syncExcludedProxies(removeTimeoutProxies)
+  }, [removeTimeoutProxies, removedProxies])
   const [searchValue, setSearchValue] = useState<string[]>(() => {
     if (
       rememberProxyGroupOpenState &&

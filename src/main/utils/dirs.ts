@@ -148,6 +148,10 @@ export function profileConfigPath(): string {
   return path.join(dataDir(), 'profile.yaml')
 }
 
+export function excludedProxiesPath(): string {
+  return path.join(dataDir(), 'excluded-proxies.json')
+}
+
 export function profilesDir(): string {
   return path.join(dataDir(), 'profiles')
 }
