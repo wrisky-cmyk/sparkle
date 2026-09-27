@@ -33,6 +33,7 @@ import { includesIgnoreCase } from '@renderer/utils/includes'
 import { useControledMihomoConfig } from '@renderer/hooks/use-controled-mihomo-config'
 import { useProfileConfig } from '@renderer/hooks/use-profile-config'
 import { runDelayTestsWithConcurrency } from '@renderer/utils/delay-test'
+import { notify } from '@renderer/utils/notification'
 import {
   addRemovedProxies,
   getRemovedProxyNames,
@@ -244,7 +245,8 @@ const Proxies: React.FC = () => {
   const isOpenContentRef = useRef<boolean[]>(isOpen)
   isOpenContentRef.current = isOpenContent
   const [delaying, setDelaying] = useState(Array(groups.length).fill(false))
-  // 每个订阅一份「测速超时被删掉」名单，记在本地；手动更新订阅后清空
+  // 每个订阅一份「测速超时被删掉」名单，记在本地；更新订阅/切换代理都不清，
+  // 更新后新出现的节点自然会显示出来
   const profileId = profileConfig?.current ?? ''
   const removedProxies = useSyncExternalStore(subscribeRemovedProxies, () =>
     getRemovedProxyNames(profileId)
@@ -456,6 +458,17 @@ const Proxies: React.FC = () => {
       const testUrl = getDelayTestUrl(group)
       setGroupDelaying(index, true)
 
+      // 整组测下来一个都没通，多半是核心刚重启或测速地址不通，不是节点的问题，
+      // 这时候一个都不删，免得整组节点全被藏起来
+      const recordGroupTimeouts = (timeoutNames: string[]): void => {
+        if (timeoutNames.length === 0) return
+        if (timeoutNames.length >= proxies.length) {
+          notify('整组测速全部超时，未删除节点（请检查网络或测速地址）', { variant: 'warning' })
+          return
+        }
+        recordTimeoutProxies(timeoutNames)
+      }
+
       try {
         if (delayTestUseGroupApi) {
           const result = await mihomoGroupDelay(group.name, testUrl)
@@ -463,7 +476,7 @@ const Proxies: React.FC = () => {
           const timeoutNames = proxies
             .filter((proxy) => !(result[proxy.name] > 0))
             .map((proxy) => proxy.name)
-          recordTimeoutProxies(timeoutNames)
+          recordGroupTimeouts(timeoutNames)
           return
         }
 
@@ -475,7 +488,7 @@ const Proxies: React.FC = () => {
             timeoutNames.push(proxy.name)
           }
         })
-        recordTimeoutProxies(timeoutNames)
+        recordGroupTimeouts(timeoutNames)
       } catch {
         // ignore
       } finally {

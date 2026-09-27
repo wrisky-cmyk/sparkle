@@ -1,4 +1,5 @@
-const STORAGE_KEY = 'removedTimeoutProxies'
+// v1 的名单可能混进整组误判（核心刚重启时全超时）的记录，换 key 让旧数据作废
+const STORAGE_KEY = 'removedTimeoutProxies2'
 
 // 不同订阅的节点名会撞车，所以名单按配置（订阅）id 分开存。
 // 名单只由页面上真正发起的测速结果决定（超时的加进来），不扫 mihomo 的 history，
@@ -77,10 +78,5 @@ export function addRemovedProxies(profileId: string, names: readonly string[]): 
   commit()
 }
 
-// 手动更新订阅后节点整套换新，名单清空，全都重新测
-export function clearRemovedProxies(profileId: string): void {
-  const current = getStore()
-  if (!(profileId in current)) return
-  delete current[profileId]
-  commit()
-}
+// 名单不随订阅更新或切换系统代理清空：更新后新出现的节点（不在名单里的）照常显示，
+// 之前测出超时的节点继续隐藏，不用再白测一轮
