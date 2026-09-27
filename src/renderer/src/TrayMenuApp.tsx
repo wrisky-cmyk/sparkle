@@ -16,17 +16,17 @@ interface TrafficData {
 const TrayMenuApp: React.FC = () => {
   const { groups, mutate } = useGroups()
   const { appConfig } = useAppConfig()
-  const { autoCloseConnection, rememberProxyDelay: rememberDelay = true } = appConfig || {}
+  const { autoCloseConnection, removeTimeoutProxies = false } = appConfig || {}
 
   useEffect(() => {
-    if (!rememberDelay) return
+    if (!removeTimeoutProxies) return
     groups?.forEach((group) => {
       group.all?.forEach((proxy) => {
         if (!proxy || proxy.history.length === 0) return
         rememberProxyDelay(proxy.name, proxy.history[proxy.history.length - 1].delay)
       })
     })
-  }, [groups, rememberDelay])
+  }, [groups, removeTimeoutProxies])
 
   const [traffic, setTraffic] = useState<TrafficData>({ up: 0, down: 0 })
   const [testingGroup, setTestingGroup] = useState<string | null>(null)
@@ -91,15 +91,18 @@ const TrayMenuApp: React.FC = () => {
   const getCurrentDelay = (group: ControllerMixedGroup): number | undefined => {
     const current = group.all?.find((p) => p.name === group.now)
     if (!current) return undefined
-    if (!current.history?.length) return getCachedProxyDelay(current.name)
+    if (!current.history?.length)
+      return removeTimeoutProxies ? getCachedProxyDelay(current.name) : undefined
     return current.history[current.history.length - 1].delay
   }
 
   const getProxyDelay = (
     proxy: ControllerProxiesDetail | ControllerGroupDetail
   ): number | undefined => {
-    // 核心重启后 history 会清空，回落到记住的上次结果
-    if (!proxy.history?.length) return getCachedProxyDelay(proxy.name)
+    // 核心重启后 history 会清空，回落到记住的上次结果（只在开了删除超时节点时）
+    if (!proxy.history?.length) {
+      return removeTimeoutProxies ? getCachedProxyDelay(proxy.name) : undefined
+    }
     return proxy.history[proxy.history.length - 1].delay
   }
 
