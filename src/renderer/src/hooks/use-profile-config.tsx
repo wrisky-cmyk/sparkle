@@ -9,6 +9,7 @@ import {
   updateProfileItem as update,
   changeCurrentProfile as change
 } from '@renderer/utils/ipc'
+import { clearRemovedProxies } from '@renderer/utils/removed-proxies'
 
 interface ProfileConfigContextType {
   profileConfig: ProfileConfig | undefined
@@ -63,6 +64,8 @@ export const ProfileConfigProvider: React.FC<{ children: ReactNode }> = ({ child
   const updateProfileItem = async (item: ProfileItem): Promise<void> => {
     try {
       await update(item)
+      // 更新订阅后节点整套换新，之前删掉的超时节点该恢复成待测
+      clearRemovedProxies(item.id)
     } catch (e) {
       notify(e, { variant: 'danger' })
     } finally {

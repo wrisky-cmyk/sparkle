@@ -19,7 +19,6 @@ interface Props {
   group: ControllerMixedGroup
   onSelect: (group: string, proxy: string) => void
   selected: boolean
-  rememberedDelay?: number
 }
 
 const isGroup = (
@@ -38,8 +37,7 @@ const ProxyItem: React.FC<Props> = (props) => {
     proxy,
     selected,
     onSelect,
-    onProxyDelay,
-    rememberedDelay
+    onProxyDelay
   } = props
   const shouldShowGroupSelectedProxy =
     showGroupSelectedProxy && isGroup(proxy) && Boolean(proxy.now)
@@ -48,9 +46,8 @@ const ProxyItem: React.FC<Props> = (props) => {
     if (proxy.history.length > 0) {
       return proxy.history[proxy.history.length - 1].delay
     }
-    // 核心重启后 history 会清空，回落到记住的上次结果
-    return rememberedDelay ?? -1
-  }, [proxy, rememberedDelay])
+    return -1
+  }, [proxy])
 
   const [loading, setLoading] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)

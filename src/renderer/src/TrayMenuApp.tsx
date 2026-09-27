@@ -6,7 +6,6 @@ import { useGroups } from './hooks/use-groups'
 import { mihomoChangeProxy, mihomoGroupDelay, mihomoCloseConnections } from './utils/ipc'
 import { useAppConfig } from './hooks/use-app-config'
 import { calcTraffic } from './utils/calc'
-import { getCachedProxyDelay, rememberProxyDelay } from './utils/proxy-delay-cache'
 
 interface TrafficData {
   up: number
@@ -16,17 +15,7 @@ interface TrafficData {
 const TrayMenuApp: React.FC = () => {
   const { groups, mutate } = useGroups()
   const { appConfig } = useAppConfig()
-  const { autoCloseConnection, removeTimeoutProxies = false } = appConfig || {}
-
-  useEffect(() => {
-    if (!removeTimeoutProxies) return
-    groups?.forEach((group) => {
-      group.all?.forEach((proxy) => {
-        if (!proxy || proxy.history.length === 0) return
-        rememberProxyDelay(proxy.name, proxy.history[proxy.history.length - 1].delay)
-      })
-    })
-  }, [groups, removeTimeoutProxies])
+  const { autoCloseConnection } = appConfig || {}
 
   const [traffic, setTraffic] = useState<TrafficData>({ up: 0, down: 0 })
   const [testingGroup, setTestingGroup] = useState<string | null>(null)
@@ -90,19 +79,14 @@ const TrayMenuApp: React.FC = () => {
 
   const getCurrentDelay = (group: ControllerMixedGroup): number | undefined => {
     const current = group.all?.find((p) => p.name === group.now)
-    if (!current) return undefined
-    if (!current.history?.length)
-      return removeTimeoutProxies ? getCachedProxyDelay(current.name) : undefined
+    if (!current?.history?.length) return undefined
     return current.history[current.history.length - 1].delay
   }
 
   const getProxyDelay = (
     proxy: ControllerProxiesDetail | ControllerGroupDetail
   ): number | undefined => {
-    // 核心重启后 history 会清空，回落到记住的上次结果（只在开了删除超时节点时）
-    if (!proxy.history?.length) {
-      return removeTimeoutProxies ? getCachedProxyDelay(proxy.name) : undefined
-    }
+    if (!proxy.history?.length) return undefined
     return proxy.history[proxy.history.length - 1].delay
   }
 

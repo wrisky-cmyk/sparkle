@@ -30,24 +30,21 @@ import { useGroups } from '@renderer/hooks/use-groups'
 import CollapseInput from '@renderer/components/base/collapse-input'
 import { includesIgnoreCase } from '@renderer/utils/includes'
 import { useControledMihomoConfig } from '@renderer/hooks/use-controled-mihomo-config'
+import { useProfileConfig } from '@renderer/hooks/use-profile-config'
 import { runDelayTestsWithConcurrency } from '@renderer/utils/delay-test'
-import { getCachedProxyDelay, rememberProxyDelay } from '@renderer/utils/proxy-delay-cache'
+import { loadRemovedProxies, saveRemovedProxies } from '@renderer/utils/removed-proxies'
 
 type ProxyLike = ControllerProxiesDetail | ControllerGroupDetail
 
 const EMPTY_PROXIES: ProxyLike[] = []
 
-function getProxyDelay(proxy: ProxyLike, useRemembered = false): number {
-  if (proxy.history.length > 0) {
-    return proxy.history[proxy.history.length - 1].delay
-  }
-  if (!useRemembered) return -1
-  return getCachedProxyDelay(proxy.name) ?? -1
+function getProxyDelay(proxy: ProxyLike): number {
+  return proxy.history.length > 0 ? proxy.history[proxy.history.length - 1].delay : -1
 }
 
-function compareProxyDelay(a: ProxyLike, b: ProxyLike, useRemembered = false): number {
-  const delayA = getProxyDelay(a, useRemembered)
-  const delayB = getProxyDelay(b, useRemembered)
+function compareProxyDelay(a: ProxyLike, b: ProxyLike): number {
+  const delayA = getProxyDelay(a)
+  const delayB = getProxyDelay(b)
   if (delayA === -1) return -1
   if (delayB === -1) return 1
   if (delayA === 0) return 1
@@ -55,8 +52,8 @@ function compareProxyDelay(a: ProxyLike, b: ProxyLike, useRemembered = false): n
   return delayA - delayB
 }
 
-function getProxyDelayRank(proxy: ProxyLike, useRemembered = false): number {
-  const delay = getProxyDelay(proxy, useRemembered)
+function getProxyDelayRank(proxy: ProxyLike): number {
+  const delay = getProxyDelay(proxy)
   if (delay > 0) return 0
   return delay === -1 ? 1 : 2
 }
@@ -210,6 +207,7 @@ const Proxies: React.FC = () => {
   const { controledMihomoConfig } = useControledMihomoConfig()
   const { mode = 'rule' } = controledMihomoConfig || {}
   const { groups = [], mutate } = useGroups()
+  const { profileConfig } = useProfileConfig()
   const { appConfig } = useAppConfig()
   const {
     proxyDisplayLayout = 'double',
@@ -241,6 +239,17 @@ const Proxies: React.FC = () => {
   const isOpenContentRef = useRef<boolean[]>(isOpen)
   isOpenContentRef.current = isOpenContent
   const [delaying, setDelaying] = useState(Array(groups.length).fill(false))
+  // 每个订阅一份「测速超时被删掉」名单，记在本地；手动更新订阅后清空
+  const profileId = profileConfig?.current ?? ''
+  const [removedProfileId, setRemovedProfileId] = useState(profileId)
+  const [removedProxies, setRemovedProxies] = useState<Set<string>>(() =>
+    loadRemovedProxies(profileId)
+  )
+  if (removedProfileId !== profileId) {
+    // 换订阅就换一份名单
+    setRemovedProfileId(profileId)
+    setRemovedProxies(loadRemovedProxies(profileId))
+  }
   const [searchValue, setSearchValue] = useState<string[]>(() => {
     if (
       rememberProxyGroupOpenState &&
@@ -327,13 +336,11 @@ const Proxies: React.FC = () => {
           ? group.all.filter((proxy) => proxy && includesIgnoreCase(proxy.name, searchText))
           : (group.all as ProxyLike[])
 
-        // 核心重启（切虚拟网卡等）后 mihomo 的 history 会清空，这里回落到记住的结果
-        const useRemembered = removeTimeoutProxies
         if (removeTimeoutProxies) {
-          groupProxies = groupProxies.filter((proxy) => getProxyDelay(proxy, useRemembered) !== 0)
+          groupProxies = groupProxies.filter((proxy) => !removedProxies.has(proxy.name))
         }
         if (proxyDisplayOrder === 'delay') {
-          groupProxies = [...groupProxies].sort((a, b) => compareProxyDelay(a, b, useRemembered))
+          groupProxies = [...groupProxies].sort(compareProxyDelay)
         }
         if (proxyDisplayOrder === 'name') {
           groupProxies = [...groupProxies].sort((a, b) => a.name.localeCompare(b.name))
@@ -341,7 +348,7 @@ const Proxies: React.FC = () => {
         if (removeTimeoutProxies) {
           // 测通的排最前，没测过的次之；组内保持上面选定的排序（sort 稳定）
           groupProxies = [...groupProxies].sort(
-            (a, b) => getProxyDelayRank(a, useRemembered) - getProxyDelayRank(b, useRemembered)
+            (a, b) => getProxyDelayRank(a) - getProxyDelayRank(b)
           )
         }
 
@@ -353,17 +360,40 @@ const Proxies: React.FC = () => {
       }
     })
     return { groupCounts, allProxies }
-  }, [groups, isOpenContent, proxyDisplayOrder, removeTimeoutProxies, cols, searchValue])
+  }, [
+    groups,
+    isOpenContent,
+    proxyDisplayOrder,
+    removeTimeoutProxies,
+    removedProxies,
+    cols,
+    searchValue
+  ])
 
   useEffect(() => {
     if (!removeTimeoutProxies) return
+    const timeoutNames: string[] = []
     groups.forEach((group) => {
       group.all.forEach((proxy) => {
         if (!proxy || proxy.history.length === 0) return
-        rememberProxyDelay(proxy.name, proxy.history[proxy.history.length - 1].delay)
+        if (proxy.history[proxy.history.length - 1].delay !== 0) return
+        timeoutNames.push(proxy.name)
       })
     })
-  }, [groups, removeTimeoutProxies])
+    if (timeoutNames.length === 0) return
+    setRemovedProxies((prev) => {
+      const next = new Set(prev)
+      let changed = false
+      timeoutNames.forEach((name) => {
+        if (next.has(name)) return
+        next.add(name)
+        changed = true
+      })
+      if (!changed) return prev
+      saveRemovedProxies(profileId, next)
+      return next
+    })
+  }, [groups, removeTimeoutProxies, profileId])
 
   const onChangeProxy = useCallback(
     async (group: string, proxy: string): Promise<void> => {
@@ -412,7 +442,7 @@ const Proxies: React.FC = () => {
       const candidates = openedProxies.length > 0 ? openedProxies : (group.all as ProxyLike[])
       // 已删掉的超时节点不再重测，省得整组测速每次都干等一轮超时
       const proxies = removeTimeoutProxies
-        ? candidates.filter((proxy) => getCachedProxyDelay(proxy.name) !== 0)
+        ? candidates.filter((proxy) => !removedProxies.has(proxy.name))
         : candidates
       if (proxies.length === 0) return
 
@@ -463,6 +493,7 @@ const Proxies: React.FC = () => {
       delayTestUseGroupApi,
       delayTestConcurrency,
       removeTimeoutProxies,
+      removedProxies,
       mutate,
       getDelayTestUrl,
       setGroupDelaying
@@ -627,8 +658,6 @@ const Proxies: React.FC = () => {
   onChangeProxyRef.current = onChangeProxy
   const proxyDisplayLayoutRef = useRef(proxyDisplayLayout)
   proxyDisplayLayoutRef.current = proxyDisplayLayout
-  const removeTimeoutProxiesRef = useRef(removeTimeoutProxies)
-  removeTimeoutProxiesRef.current = removeTimeoutProxies
   const showGroupSelectedProxyRef = useRef(showGroupSelectedProxy)
   showGroupSelectedProxyRef.current = showGroupSelectedProxy
   const showProxyDetailTooltipRef = useRef(showProxyDetailTooltip)
@@ -699,7 +728,6 @@ const Proxies: React.FC = () => {
     const pLayout = proxyDisplayLayoutRef.current
     const showGroupSelected = showGroupSelectedProxyRef.current
     const showTooltip = showProxyDetailTooltipRef.current
-    const useRemembered = removeTimeoutProxiesRef.current
     let innerIndex = index
     for (let i = 0; i < groupIndex; i++) {
       innerIndex -= gc[i]
@@ -720,7 +748,6 @@ const Proxies: React.FC = () => {
           proxyDisplayLayout={pLayout}
           showGroupSelectedProxy={showGroupSelected}
           showProxyDetailTooltip={showTooltip}
-          rememberedDelay={useRemembered ? getCachedProxyDelay(proxy.name) : undefined}
           selected={proxy.name === grps[groupIndex].now}
         />
       )
