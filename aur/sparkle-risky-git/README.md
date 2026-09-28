@@ -28,7 +28,7 @@ sudo pacman -U sparkle-risky-git-*.pkg.tar.zst
 # 1) 合并上游
 cd ~/sparkle
 git fetch origin                   # origin 就是上游 xishang0128/sparkle
-git merge origin/master            # 或 git rebase origin/master
+git merge origin/master            # fork 提交较多，rebase 要逐个重放，冲突更麻烦
 git push fork master               # fork 指向自己的 GitHub 仓库
 
 # 2) 重新打包并安装
@@ -37,9 +37,10 @@ makepkg -f
 sudo pacman -U sparkle-risky-git-*.pkg.tar.zst
 ```
 
-想直接构建本地 checkout（改完不必先 push）：
+想直接构建本地 checkout（改完先 commit，可以不必 push）：
 
 ```bash
+git commit -am "..."               # file:// 源走的是 git clone，只拿已提交的内容
 _src="git+file://$HOME/sparkle" makepkg -f
 ```
 
