@@ -1,9 +1,6 @@
 export { getAppConfig, patchAppConfig } from './app'
-export {
-  getExcludedProxyStore,
-  setExcludedProxyStore,
-  applyExcludedProxies
-} from './excludedProxies'
+export { getProxyTestStore, setProxyTestStore, applyExcludedProxies } from './proxyTestStore'
+export { getTrayIconCache, setTrayIconCache, subscribeTrayIconCache } from './trayIconCache'
 export { getControledMihomoConfig, patchControledMihomoConfig } from './controledMihomo'
 export {
   getProfile,

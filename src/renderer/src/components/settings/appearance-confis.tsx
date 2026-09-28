@@ -29,29 +29,12 @@ import { MdEditDocument } from 'react-icons/md'
 import CSSEditorModal from './css-editor-modal'
 import TrayIconCropModal from './tray-icon-crop-modal'
 import { notify } from '@renderer/utils/notification'
-import { loadImageElement, recolorImageElementToPngDataURL } from '@renderer/utils/image'
-import defaultTrayIcon from '../../../../../resources/icon.png'
+import { syncTrayIconCache } from '@renderer/utils/tray-icons'
 
 // 这些格式会先进裁剪弹窗转成 PNG（SVG 也在这里光栅化，Electron 的托盘不支持 SVG）
 const cropTrayIconPattern = /\.(png|jpe?g|webp|svg)$/i
 type TrayIconKey = 'customTrayIcon' | 'customTrayIconSysProxy' | 'customTrayIconTun'
-
-const hexToRgbColor = (hex: string): { red: number; green: number; blue: number } | undefined => {
-  const normalized = hex.trim().replace(/^#/, '')
-  if (!/^([0-9a-f]{3}|[0-9a-f]{6})$/i.test(normalized)) return undefined
-  const full =
-    normalized.length === 3
-      ? normalized
-          .split('')
-          .map((c) => c + c)
-          .join('')
-      : normalized
-  return {
-    red: parseInt(full.slice(0, 2), 16),
-    green: parseInt(full.slice(2, 4), 16),
-    blue: parseInt(full.slice(4, 6), 16)
-  }
-}
+const colorPatchDelay = 300
 
 const AppearanceConfig: React.FC = () => {
   const { appConfig, patchAppConfig } = useAppConfig()
@@ -89,8 +72,23 @@ const AppearanceConfig: React.FC = () => {
     appTheme = 'system'
   } = appConfig || {}
   const [localShowFloating, setLocalShowFloating] = useState(showFloating)
+  // 取色器拖动时会连续触发 onChange，先落在本地草稿上，防抖后再写配置
+  const [sysProxyColorDraft, setSysProxyColorDraft] = useState(trayIconSysProxyColor)
+  const [tunColorDraft, setTunColorDraft] = useState(trayIconTunColor)
   const timeoutRef = useRef<NodeJS.Timeout | null>(null)
   const tintTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const colorPatchRef = useRef<{ timer: NodeJS.Timeout | null; patch: Partial<AppConfig> }>({
+    timer: null,
+    patch: {}
+  })
+
+  useEffect(() => {
+    setSysProxyColorDraft(trayIconSysProxyColor)
+  }, [trayIconSysProxyColor])
+
+  useEffect(() => {
+    setTunColorDraft(trayIconTunColor)
+  }, [trayIconTunColor])
 
   useEffect(() => {
     resolveThemes().then((themes) => {
@@ -106,8 +104,24 @@ const AppearanceConfig: React.FC = () => {
       if (tintTimeoutRef.current) {
         clearTimeout(tintTimeoutRef.current)
       }
+      if (colorPatchRef.current.timer) {
+        clearTimeout(colorPatchRef.current.timer)
+      }
     }
   }, [])
+
+  const patchTrayIconColor = (patch: Partial<AppConfig>): void => {
+    colorPatchRef.current.patch = { ...colorPatchRef.current.patch, ...patch }
+    if (colorPatchRef.current.timer) {
+      clearTimeout(colorPatchRef.current.timer)
+    }
+    colorPatchRef.current.timer = setTimeout(() => {
+      colorPatchRef.current.timer = null
+      const next = colorPatchRef.current.patch
+      colorPatchRef.current.patch = {}
+      void patchAppConfig(next)
+    }, colorPatchDelay)
+  }
 
   const pickTrayIcon = async (key: TrayIconKey): Promise<void> => {
     const files = await getFilePath(
@@ -129,45 +143,19 @@ const AppearanceConfig: React.FC = () => {
     await updateTrayIcon()
   }
 
-  // 用「默认托盘图标」（没设就用内置图标）生成另外两个状态的着色版本
-  const applyTrayIconAutoTint = async (
-    baseIcon: string,
-    sysProxyColor: string,
-    tunColor: string
-  ): Promise<void> => {
-    const sysProxyRgbColor = hexToRgbColor(sysProxyColor)
-    const tunRgbColor = hexToRgbColor(tunColor)
-    if (!sysProxyRgbColor || !tunRgbColor) return
-
-    try {
-      const baseURL = baseIcon.startsWith('data:image/')
-        ? baseIcon
-        : baseIcon
-          ? await readImageFileDataURL(baseIcon)
-          : defaultTrayIcon
-      const baseImage = await loadImageElement(baseURL)
-      const sysProxyIcon = recolorImageElementToPngDataURL(baseImage, sysProxyRgbColor)
-      const tunIcon = recolorImageElementToPngDataURL(baseImage, tunRgbColor)
-      if (!sysProxyIcon || !tunIcon) return
-
-      await patchAppConfig({
-        customTrayIconSysProxy: sysProxyIcon,
-        customTrayIconTun: tunIcon
-      })
-      await updateTrayIcon()
-    } catch (e) {
-      notify(e, { variant: 'danger' })
-    }
-  }
-
+  // 着色图标属于派生产物：算完只推给主进程缓存，不进 app config
   useEffect(() => {
     if (!trayIconAutoTint || disableTray) return
     if (tintTimeoutRef.current) clearTimeout(tintTimeoutRef.current)
     tintTimeoutRef.current = setTimeout(() => {
       tintTimeoutRef.current = null
-      void applyTrayIconAutoTint(customTrayIcon, trayIconSysProxyColor, trayIconTunColor)
+      void syncTrayIconCache({
+        base: customTrayIcon,
+        sysProxyColor: trayIconSysProxyColor,
+        tunColor: trayIconTunColor
+      }).catch((e) => notify(e, { variant: 'danger' }))
     }, 200)
-  }, [trayIconAutoTint, customTrayIcon, trayIconSysProxyColor, trayIconTunColor])
+  }, [trayIconAutoTint, disableTray, customTrayIcon, trayIconSysProxyColor, trayIconTunColor])
 
   const renderTrayIconSetting = (
     title: string,
@@ -380,9 +368,10 @@ const AppearanceConfig: React.FC = () => {
                 <SettingItem compatKey="legacy" title="系统代理着色" divider>
                   <input
                     type="color"
-                    value={trayIconSysProxyColor}
-                    onChange={async (e) => {
-                      await patchAppConfig({ trayIconSysProxyColor: e.target.value })
+                    value={sysProxyColorDraft}
+                    onChange={(e) => {
+                      setSysProxyColorDraft(e.target.value)
+                      patchTrayIconColor({ trayIconSysProxyColor: e.target.value })
                     }}
                     className="h-8 w-16 cursor-pointer rounded-md border border-default-200 bg-transparent"
                     aria-label="系统代理着色"
@@ -391,9 +380,10 @@ const AppearanceConfig: React.FC = () => {
                 <SettingItem compatKey="legacy" title="虚拟网卡着色" divider>
                   <input
                     type="color"
-                    value={trayIconTunColor}
-                    onChange={async (e) => {
-                      await patchAppConfig({ trayIconTunColor: e.target.value })
+                    value={tunColorDraft}
+                    onChange={(e) => {
+                      setTunColorDraft(e.target.value)
+                      patchTrayIconColor({ trayIconTunColor: e.target.value })
                     }}
                     className="h-8 w-16 cursor-pointer rounded-md border border-default-200 bg-transparent"
                     aria-label="虚拟网卡着色"

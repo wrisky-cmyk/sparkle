@@ -13,7 +13,7 @@ import { readImageFileDataURL } from '@renderer/utils/ipc'
 import { platform } from '@renderer/utils/init'
 import templateTrayIcon from '../../../../../resources/iconTemplate.png'
 import TrafficChart from './traffic-chart'
-import { resolveTrayIconSource, resolveTrayIconState } from '../../../../shared/tray-icon'
+import { getActiveTrayIconDataURL, syncTrayIconCache } from '@renderer/utils/tray-icons'
 
 let currentUpload: number | undefined = undefined
 let currentDownload: number | undefined = undefined
@@ -42,6 +42,9 @@ const ConnCard: React.FC<Props> = (props) => {
     customTrayIcon = '',
     customTrayIconSysProxy = '',
     customTrayIconTun = '',
+    trayIconAutoTint = false,
+    trayIconSysProxyColor = '#3b82f6',
+    trayIconTunColor = '#f59e0b',
     sysProxy,
     connectionCardStatus = 'col-span-2',
     disableAnimation = false
@@ -50,13 +53,43 @@ const ConnCard: React.FC<Props> = (props) => {
   const { tun } = controledMihomoConfig || {}
   const showTrafficRef = useRef(showTraffic)
   showTrafficRef.current = showTraffic
-  // 托盘图标随系统代理 / 虚拟网卡状态切换
-  const trayIcon = resolveTrayIconSource(
-    { customTrayIcon, customTrayIconSysProxy, customTrayIconTun },
-    resolveTrayIconState(sysProxy?.enable ?? false, tun?.enable ?? false)
-  )
-  const customTrayIconRef = useRef(trayIcon)
-  customTrayIconRef.current = trayIcon
+  // 托盘图标随系统代理 / 虚拟网卡状态切换；自动着色时在渲染进程算好再给主进程
+  const customTrayIconRef = useRef('')
+  useEffect(() => {
+    let cancelled = false
+    const input = {
+      customTrayIcon,
+      customTrayIconSysProxy,
+      customTrayIconTun,
+      sysProxyEnabled: sysProxy?.enable ?? false,
+      tunEnabled: tun?.enable ?? false,
+      autoTint: trayIconAutoTint,
+      sysProxyColor: trayIconSysProxyColor,
+      tunColor: trayIconTunColor
+    }
+    void getActiveTrayIconDataURL(input).then((dataURL) => {
+      if (!cancelled) customTrayIconRef.current = dataURL
+    })
+    if (trayIconAutoTint) {
+      void syncTrayIconCache({
+        base: customTrayIcon,
+        sysProxyColor: trayIconSysProxyColor,
+        tunColor: trayIconTunColor
+      })
+    }
+    return (): void => {
+      cancelled = true
+    }
+  }, [
+    customTrayIcon,
+    customTrayIconSysProxy,
+    customTrayIconTun,
+    trayIconAutoTint,
+    trayIconSysProxyColor,
+    trayIconTunColor,
+    sysProxy?.enable,
+    tun?.enable
+  ])
 
   const location = useLocation()
   const navigate = useNavigate()

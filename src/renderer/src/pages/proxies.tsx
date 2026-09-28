@@ -4,6 +4,7 @@ import { Pressable } from 'react-aria'
 import BasePage from '@renderer/components/base/base-page'
 import { useAppConfig } from '@renderer/hooks/use-app-config'
 import {
+  applyProxyTestStore,
   getImageDataURL,
   mihomoChangeProxy,
   mihomoCloseConnections,
@@ -38,9 +39,11 @@ import { notify } from '@renderer/utils/notification'
 import { subscribeProfileUpdated, takeProfileUpdated } from '@renderer/utils/profile-updated'
 import {
   addRemovedProxies,
+  addTestedProxies,
   getRemovedProxyNames,
+  getTestedProxyNames,
+  replaceTestedProxies,
   removeRemovedProxies,
-  syncExcludedProxies,
   subscribeRemovedProxies
 } from '@renderer/utils/removed-proxies'
 
@@ -255,10 +258,21 @@ const Proxies: React.FC = () => {
   const removedProxies = useSyncExternalStore(subscribeRemovedProxies, () =>
     getRemovedProxyNames(profileId)
   )
-  // 名单变化或开关切换时同步给主进程，由它在下一次生成核心配置时排除这些节点
+  const testedProxies = useSyncExternalStore(subscribeRemovedProxies, () =>
+    getTestedProxyNames(profileId)
+  )
+  // 开关只切换「排不排除」，名单本身不动；开关一变就让主进程重新生成配置并热重载，
+  // 关掉时节点马上回来、打开时马上消失
+  const prevRemoveTimeoutProxiesRef = useRef<boolean | undefined>(undefined)
   useEffect(() => {
-    syncExcludedProxies(removeTimeoutProxies)
-  }, [removeTimeoutProxies, removedProxies])
+    if (prevRemoveTimeoutProxiesRef.current === undefined) {
+      prevRemoveTimeoutProxiesRef.current = removeTimeoutProxies
+      return
+    }
+    if (prevRemoveTimeoutProxiesRef.current === removeTimeoutProxies) return
+    prevRemoveTimeoutProxiesRef.current = removeTimeoutProxies
+    void applyProxyTestStore().catch(() => {})
+  }, [removeTimeoutProxies])
   const [searchValue, setSearchValue] = useState<string[]>(() => {
     if (
       rememberProxyGroupOpenState &&
@@ -421,7 +435,8 @@ const Proxies: React.FC = () => {
     [profileId]
   )
 
-  // 更新订阅后自动测一遍：把各组的节点去重后统一测，不再靠手点
+  // 更新订阅后自动测一遍：只补测没测过的节点（已测过的和已删掉的都跳过），
+  // 大订阅更新完不用把几千个节点重测一遍
   const autoTestingRef = useRef(false)
   const runAutoDelayTest = useCallback(async (): Promise<void> => {
     if (autoTestingRef.current) return
@@ -432,12 +447,18 @@ const Proxies: React.FC = () => {
       const seen = new Set<string>()
       freshGroups.forEach((group) => {
         group.all.forEach((proxy) => {
-          if (!proxy || seen.has(proxy.name) || removedProxies.has(proxy.name)) return
+          if (!proxy || seen.has(proxy.name)) return
           seen.add(proxy.name)
+          if (removedProxies.has(proxy.name) || testedProxies.has(proxy.name)) return
           targets.push({ proxy, url: getDelayTestUrl(group) })
         })
       })
-      if (targets.length === 0) return
+      // 已测名单用当前订阅的节点名整体替换，顺带清掉订阅里已经删掉的旧名字
+      const allNames = [...seen]
+      if (targets.length === 0) {
+        replaceTestedProxies(profileId, allNames)
+        return
+      }
 
       const timeoutNames: string[] = []
       const okNames: string[] = []
@@ -451,11 +472,13 @@ const Proxies: React.FC = () => {
       })
 
       if (timeoutNames.length >= targets.length) {
-        // 一个都没通，多半是测速地址或网络的问题，不删
+        // 一个都没通，多半是测速地址或网络的问题：不删，也不把这批记成「已测」，
+        // 免得它们再也轮不到重测
         notify('自动测速全部超时，未删除节点（请检查网络或测速地址）', { variant: 'warning' })
       } else {
         recordTimeoutProxies(timeoutNames)
         recordRecoveredProxies(okNames)
+        replaceTestedProxies(profileId, allNames)
         if (timeoutNames.length > 0) {
           notify(`自动测速完成，隐藏 ${timeoutNames.length} 个超时节点`, { variant: 'success' })
         }
@@ -468,7 +491,9 @@ const Proxies: React.FC = () => {
     }
   }, [
     groups,
+    profileId,
     removedProxies,
+    testedProxies,
     delayTestConcurrency,
     getDelayTestUrl,
     recordTimeoutProxies,
@@ -559,26 +584,31 @@ const Proxies: React.FC = () => {
 
       // 整组测下来一个都没通，多半是核心刚重启或测速地址不通，不是节点的问题，
       // 这时候一个都不删，免得整组节点全被藏起来
-      const recordGroupTimeouts = (timeoutNames: string[]): void => {
-        if (timeoutNames.length === 0) return
+      // 返回这轮测速结果可不可信（整组全超时就不记名单，也不记「已测」）
+      const recordGroupTimeouts = (timeoutNames: string[]): boolean => {
         if (timeoutNames.length >= proxies.length) {
           notify('整组测速全部超时，未删除节点（请检查网络或测速地址）', { variant: 'warning' })
-          return
+          return false
         }
+        if (timeoutNames.length === 0) return true
         recordTimeoutProxies(timeoutNames)
+        return true
       }
 
       try {
-        if (delayTestUseGroupApi) {
+        // 开着「测速后删除超时节点」时不走组测速接口：那个接口会把组里所有节点
+        // （包括已经删掉的）都测一遍，正好白等一轮超时
+        if (delayTestUseGroupApi && !removeTimeoutProxies) {
           const result = await mihomoGroupDelay(group.name, testUrl)
           // 组测速接口超时的节点 delay 是 0（或没有条目），只认这次测到的节点
           const timeoutNames = proxies
             .filter((proxy) => !(result[proxy.name] > 0))
             .map((proxy) => proxy.name)
-          recordGroupTimeouts(timeoutNames)
+          const valid = recordGroupTimeouts(timeoutNames)
           recordRecoveredProxies(
             proxies.filter((proxy) => result[proxy.name] > 0).map((proxy) => proxy.name)
           )
+          if (valid) addTestedProxies(profileId, proxies.map((proxy) => proxy.name))
           return
         }
 
@@ -592,8 +622,9 @@ const Proxies: React.FC = () => {
             timeoutNames.push(proxy.name)
           }
         })
-        recordGroupTimeouts(timeoutNames)
+        const valid = recordGroupTimeouts(timeoutNames)
         recordRecoveredProxies(okNames)
+        if (valid) addTestedProxies(profileId, proxies.map((proxy) => proxy.name))
       } catch {
         // ignore
       } finally {
@@ -608,7 +639,9 @@ const Proxies: React.FC = () => {
       delayTestConcurrency,
       removeTimeoutProxies,
       removedProxies,
+      profileId,
       recordTimeoutProxies,
+      recordRecoveredProxies,
       mutate,
       getDelayTestUrl,
       setGroupDelaying

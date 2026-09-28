@@ -102,6 +102,12 @@ export const patchMihomoConfig = async (patch: Partial<ControllerConfigs>): Prom
   return await instance.patch('/configs', patch)
 }
 
+// 让运行中的内核重新读工作配置文件，用不着整核重启（重启会掐断现有连接）
+export const reloadMihomoConfig = async (path: string): Promise<void> => {
+  const instance = await getAxios()
+  return await instance.put('/configs', { path })
+}
+
 export const mihomoCloseConnection = async (id: string): Promise<void> => {
   const instance = await getAxios()
   return await instance.delete(`/connections/${encodeURIComponent(id)}`)

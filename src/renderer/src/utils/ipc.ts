@@ -1,4 +1,6 @@
 import { TitleBarOverlayOptions } from 'electron'
+import type { ProxyTestStore } from '../../../shared/proxy-test'
+import type { TrayIconCache, TrayIconCacheInput } from '../../../shared/tray-icon-cache'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function ipcErrorWrapper(response: any): any {
@@ -182,8 +184,25 @@ export async function updateProfileItem(item: ProfileItem): Promise<void> {
   return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('updateProfileItem', item))
 }
 
-export async function setExcludedProxies(store: Record<string, string[]>): Promise<void> {
-  return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('setExcludedProxies', store))
+export async function getProxyTestStore(): Promise<ProxyTestStore> {
+  return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('getProxyTestStore'))
+}
+
+export async function setProxyTestStore(store: ProxyTestStore): Promise<void> {
+  return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('setProxyTestStore', store))
+}
+
+// 开关切换后重新生成核心配置并热重载
+export async function applyProxyTestStore(): Promise<void> {
+  return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('applyProxyTestStore'))
+}
+
+export async function setTrayIconCache(cache: TrayIconCacheInput): Promise<void> {
+  return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('setTrayIconCache', cache))
+}
+
+export async function getTrayIconCache(): Promise<TrayIconCache | undefined> {
+  return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('getTrayIconCache'))
 }
 
 export async function getProfileStr(id: string): Promise<string> {

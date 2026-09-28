@@ -43,7 +43,10 @@ import {
   setProfileStr,
   updateProfileItem,
   setProfileConfig,
-  setExcludedProxyStore,
+  getProxyTestStore,
+  setProxyTestStore,
+  getTrayIconCache,
+  setTrayIconCache,
   getOverrideConfig,
   setOverrideConfig,
   getOverrideItem,
@@ -63,6 +66,7 @@ import {
   subStorePort
 } from '../resolve/server'
 import { quitWithoutCore, restartCore, startNetworkDetection, stopCore } from '../core/manager'
+import { scheduleCoreConfigReload } from '../core/configReload'
 import { stopNetworkDetection } from '../core/network'
 import {
   checkCorePermission,
@@ -279,7 +283,19 @@ export function registerIpcMainHandlers(): void {
   )
   ipcMain.handle('getProfileConfig', (_e, force) => ipcErrorWrapper(getProfileConfig)(force))
   ipcMain.handle('setProfileConfig', (_e, config) => ipcErrorWrapper(setProfileConfig)(config))
-  ipcMain.handle('setExcludedProxies', (_e, store) => ipcErrorWrapper(setExcludedProxyStore)(store))
+  ipcMain.handle(
+    'setProxyTestStore',
+    (_e, store) =>
+      ipcErrorWrapper(async (value: unknown) => {
+        await setProxyTestStore(value)
+        scheduleCoreConfigReload()
+      })(store)
+  )
+  ipcMain.handle('getProxyTestStore', ipcErrorWrapper(getProxyTestStore))
+  // 开关切换时不用改名单，直接重新应用一次（关掉就把节点放回来）
+  ipcMain.handle('applyProxyTestStore', () => ipcErrorWrapper(scheduleCoreConfigReload)())
+  ipcMain.handle('getTrayIconCache', ipcErrorWrapper(getTrayIconCache))
+  ipcMain.handle('setTrayIconCache', (_e, cache) => ipcErrorWrapper(setTrayIconCache)(cache))
   ipcMain.handle('getCurrentProfileItem', ipcErrorWrapper(getCurrentProfileItem))
   ipcMain.handle('getProfileItem', (_e, id) => ipcErrorWrapper(getProfileItem)(id))
   ipcMain.handle('getProfileStr', (_e, id) => ipcErrorWrapper(getProfileStr)(id))

@@ -3,8 +3,10 @@ import {
   getAppConfig,
   getControledMihomoConfig,
   getProfileConfig,
+  getTrayIconCache,
   patchAppConfig,
-  patchControledMihomoConfig
+  patchControledMihomoConfig,
+  subscribeTrayIconCache
 } from '../config'
 import icoIcon from '../../../resources/icon.ico?asset'
 import pngIcon from '../../../resources/icon.png?asset'
@@ -49,6 +51,7 @@ let trayMenu: Menu | null = null
 let trayIconUpdateListenerRegistered = false
 let updateTrayMenuListenerRegistered = false
 let trayIconStateListenerRegistered = false
+let trayIconCacheListenerRegistered = false
 let currentTrayIconKey = ''
 let lastTrafficTrayIconAt = 0
 type TrayImage = Electron.NativeImage | string
@@ -111,6 +114,16 @@ function isSvgPayload(dataUrl: string): boolean {
   return head.trimStart().startsWith('<svg')
 }
 
+// 图标可能是几百 KB 的 data URL，比较/缓存 key 只留指纹
+function hashIconKey(value: string): string {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(36)
+}
+
 function createCustomTrayImage(customTrayIcon: string): TrayImage | null {
   if (!customTrayIcon) return null
 
@@ -162,20 +175,47 @@ function createTrafficTrayImage(png: string, templateImage = true): Electron.Nat
 async function resolveActiveTrayIcon(): Promise<{
   state: TrayIconState
   source: string
+  key: string
   image: TrayImage | null
 }> {
-  const [
-    { sysProxy, customTrayIcon = '', customTrayIconSysProxy = '', customTrayIconTun = '' },
-    { tun }
-  ] = await Promise.all([getAppConfig(), getControledMihomoConfig()])
+  const [{ tun }, appConfig] = await Promise.all([getControledMihomoConfig(), getAppConfig()])
+  const {
+    sysProxy,
+    customTrayIcon = '',
+    customTrayIconSysProxy = '',
+    customTrayIconTun = '',
+    trayIconAutoTint = false,
+    trayIconSysProxyColor = '#3b82f6',
+    trayIconTunColor = '#f59e0b'
+  } = appConfig
 
   const state = resolveTrayIconState(sysProxy?.enable ?? false, tun?.enable ?? false)
+
+  // 自动着色的图标由渲染进程生成，只放缓存文件里；输入对不上就回落到手动图标
+  if (trayIconAutoTint && state !== 'default') {
+    const cache = await getTrayIconCache()
+    const matched =
+      cache &&
+      cache.base === customTrayIcon &&
+      cache.sysProxyColor === trayIconSysProxyColor &&
+      cache.tunColor === trayIconTunColor
+    const tinted = state === 'tun' ? cache?.tun : cache?.sysProxy
+    if (matched && tinted) {
+      return {
+        state,
+        source: tinted,
+        key: `${state}:tint:${cache.updatedAt}`,
+        image: createCustomTrayImage(tinted)
+      }
+    }
+  }
+
   const source = resolveTrayIconSource(
     { customTrayIcon, customTrayIconSysProxy, customTrayIconTun },
     state
   )
 
-  return { state, source, image: createCustomTrayImage(source) }
+  return { state, source, key: `${state}:${hashIconKey(source)}`, image: createCustomTrayImage(source) }
 }
 
 function applyTrayIcon(image: TrayImage | null): void {
@@ -611,6 +651,13 @@ export async function createTray(): Promise<void> {
     })
     trayIconStateListenerRegistered = true
   }
+  if (!trayIconCacheListenerRegistered) {
+    // 渲染进程重新生成了着色图标
+    subscribeTrayIconCache(() => {
+      void updateTrayIcon()
+    })
+    trayIconCacheListenerRegistered = true
+  }
   await updateTrayIcon()
   if (process.platform === 'darwin') {
     if (!useDockIcon && app.dock) {
@@ -618,7 +665,7 @@ export async function createTray(): Promise<void> {
     }
     if (!trayIconUpdateListenerRegistered) {
       ipcMain.on('trayIconUpdate', async (_, png?: string) => {
-        const { state, source, image: customIcon } = await resolveActiveTrayIcon()
+        const { key, image: customIcon } = await resolveActiveTrayIcon()
         lastTrafficTrayIconAt = Date.now()
         if (png) {
           const image = createTrafficTrayImage(png, !customIcon)
@@ -628,7 +675,7 @@ export async function createTray(): Promise<void> {
           }
         }
         lastTrafficTrayIconAt = 0
-        currentTrayIconKey = `${state}:${source}`
+        currentTrayIconKey = key
         tray?.setImage(customIcon || createDarwinTrayIcon())
       })
       trayIconUpdateListenerRegistered = true
@@ -664,13 +711,12 @@ export async function createTray(): Promise<void> {
 export async function updateTrayIcon(): Promise<void> {
   if (!tray) return
 
-  const { state, source, image } = await resolveActiveTrayIcon()
-  const iconKey = `${state}:${source}`
-  if (iconKey === currentTrayIconKey) return
-  currentTrayIconKey = iconKey
-
   // macOS 的网速图标由渲染进程绘制，避免两者互相覆盖
   if (process.platform === 'darwin' && Date.now() - lastTrafficTrayIconAt < 3000) return
+
+  const { key, image } = await resolveActiveTrayIcon()
+  if (key === currentTrayIconKey) return
+  currentTrayIconKey = key
 
   applyTrayIcon(image)
 }

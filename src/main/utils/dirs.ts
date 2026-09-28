@@ -148,8 +148,14 @@ export function profileConfigPath(): string {
   return path.join(dataDir(), 'profile.yaml')
 }
 
-export function excludedProxiesPath(): string {
+// 保留原文件名，老版本只存超时名单（字符串数组），读取时兼容
+export function proxyTestStorePath(): string {
   return path.join(dataDir(), 'excluded-proxies.json')
+}
+
+// 托盘图标着色的结果由渲染进程生成，只缓存派生产物，不进 app config
+export function trayIconCachePath(): string {
+  return path.join(dataDir(), 'tray-icons.json')
 }
 
 export function profilesDir(): string {
