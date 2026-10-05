@@ -1,5 +1,7 @@
-import { readFile, writeFile } from 'fs/promises'
+import { readFile, writeFile, rename, unlink } from 'fs/promises'
+import { existsSync } from 'fs'
 import { proxyTestStorePath } from '../utils/dirs'
+import { appendAppLog } from '../utils/log'
 import { getAppConfig } from './app'
 import type { ProxyTestProfileResult, ProxyTestStore } from '../../shared/proxy-test'
 
@@ -8,6 +10,10 @@ import type { ProxyTestProfileResult, ProxyTestStore } from '../../shared/proxy-
 //   这样自动选择组不会再拿它们做健康检查、也不会选到它们；
 // - tested：最近一次测速拿到结果的节点名，更新订阅后自动测速只补测没测过的。
 let store: ProxyTestStore | undefined
+// 测速过程中渲染进程会连续推送名单，多次写入必须排队并原子落盘：
+// 并发 writeFile 会各自 truncate 再按自己的偏移写，短内容写在长内容之后就会留下
+// 「完整 JSON + 上一次的残尾」，之后 JSON.parse 永远失败
+let writePromise: Promise<void> = Promise.resolve()
 
 function normalizeNames(value: unknown): string[] {
   if (!Array.isArray(value)) return []
@@ -41,10 +47,30 @@ function sanitize(value: unknown): ProxyTestStore {
 }
 
 async function readStore(): Promise<ProxyTestStore> {
+  const storePath = proxyTestStorePath()
+  let raw: string
   try {
-    return sanitize(JSON.parse(await readFile(proxyTestStorePath(), 'utf-8')))
+    raw = await readFile(storePath, 'utf-8')
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+    return {}
+  }
+  try {
+    return sanitize(JSON.parse(raw))
+  } catch (e) {
+    if (!(e instanceof SyntaxError)) throw e
+    // 名单损坏不能拖垮配置生成，留档后从空名单重建
+    const backupPath = `${storePath}.corrupt-${Date.now()}`
+    try {
+      await rename(storePath, backupPath)
+      void appendAppLog(`[ProxyTest]: parse store failed, moved to ${backupPath}, ${e}\n`).catch(
+        () => {}
+      )
+    } catch (renameError) {
+      void appendAppLog(
+        `[ProxyTest]: parse store failed and backup failed, ${e}; ${renameError}\n`
+      ).catch(() => {})
+    }
     return {}
   }
 }
@@ -56,7 +82,33 @@ export async function getProxyTestStore(): Promise<ProxyTestStore> {
 
 export async function setProxyTestStore(value: unknown): Promise<void> {
   store = sanitize(value)
-  await writeFile(proxyTestStorePath(), JSON.stringify(store), 'utf-8')
+  const content = JSON.stringify(store)
+  const previousPromise = writePromise
+  const currentPromise = (async () => {
+    await previousPromise
+    await writeStore(content)
+  })()
+  writePromise = currentPromise.catch(() => {})
+  await currentPromise
+}
+
+async function writeStore(content: string): Promise<void> {
+  const storePath = proxyTestStorePath()
+  const tmpPath = `${storePath}.tmp`
+  try {
+    await writeFile(tmpPath, content, 'utf-8')
+    if (existsSync(storePath) && process.platform === 'win32') {
+      await unlink(storePath)
+    }
+    await rename(tmpPath, storePath)
+  } catch (e) {
+    try {
+      await unlink(tmpPath)
+    } catch {
+      // ignore
+    }
+    throw e
+  }
 }
 
 function escapeRegExp(value: string): string {
