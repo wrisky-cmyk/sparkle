@@ -185,8 +185,8 @@ async function resolveActiveTrayIcon(): Promise<{
     customTrayIconSysProxy = '',
     customTrayIconTun = '',
     trayIconAutoTint = false,
-    trayIconSysProxyColor = '#3b82f6',
-    trayIconTunColor = '#f59e0b'
+    trayIconSysProxyColor = '#3390ec',
+    trayIconTunColor = '#3fb950'
   } = appConfig
 
   const state = resolveTrayIconState(sysProxy?.enable ?? false, tun?.enable ?? false)

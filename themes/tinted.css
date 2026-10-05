@@ -1,0 +1,111 @@
+/* Tinted */
+/*
+ * 主题：浅色是它的蓝，深色是 Tinted Night。
+ * 浅色 = #3390ec 着色；深色 = #17212b / #5288c1。
+ * 只覆盖 HeroUI/Sparkle 的调色板变量，不动布局、圆角和阴影，所以和内置的
+ * 亮/暗模式都能对上；那边没有的语义色（success / warning / danger）
+ * 沿用它的绿勾、橙色提示和挂断红。
+ *
+ * 用法：复制到数据目录的 themes/ 下，然后在 设置 → 外观设置 → 自定义主题 里选它。
+ *   Linux: ~/.config/sparkle/themes/
+ *   macOS: ~/Library/Application Support/sparkle/themes/
+ *   Windows: %APPDATA%\sparkle\themes\
+ */
+
+:root,
+.light,
+[data-theme='light'] {
+  color-scheme: light;
+
+  /* 窗口底色：着色主题标志性的淡蓝，卡片用纯白压在上面 */
+  --background: #e8f2fb;
+  --foreground: #17212b;
+  --surface: #ffffff;
+  --surface-foreground: #17212b;
+  --surface-secondary: #dbeaf8;
+  --surface-secondary-foreground: #1f3346;
+  --surface-tertiary: #cbe0f4;
+  --surface-tertiary-foreground: #2c4759;
+
+  /* 主色蓝 */
+  --accent: #3390ec;
+  --accent-foreground: #ffffff;
+  --secondary: #54a9eb;
+  --secondary-foreground: #17212b;
+  --link: #1179bb;
+
+  --default: #cfe1f2;
+  --default-foreground: #17212b;
+  --default-50: #f2f8fd;
+  --default-100: #e4eff9;
+  --default-200: #dbeaf8;
+  --default-300: #cbe0f4;
+  --default-400: #8fadc9;
+  --default-500: #527090;
+  --default-600: #46647f;
+  --default-700: #2c4759;
+
+  /* 绿勾 / 提示橙 / 挂断红 */
+  --success: #4dc247;
+  --success-foreground: #17212b;
+  --warning: #e8942f;
+  --warning-foreground: #17212b;
+  --danger: #d94444;
+  --danger-foreground: #ffffff;
+
+  --border: rgb(51 144 236 / 0.18);
+}
+
+/* 着色主题的背景是一层从蓝到白的渐变，这里用同样的渐变铺满窗口。 */
+html.light,
+html[data-theme='light'] {
+  background-image: linear-gradient(150deg, #dfedfb 0%, #f4f9fe 45%, #dcebf9 100%);
+  background-attachment: fixed;
+}
+
+.dark,
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --background: #0e1621;
+  --foreground: #ffffff;
+  --surface: #17212b;
+  --surface-foreground: #ffffff;
+  --surface-secondary: #1f2b38;
+  --surface-secondary-foreground: #e9eef4;
+  --surface-tertiary: #293a4c;
+  --surface-tertiary-foreground: #dfe6ee;
+
+  /* 夜里把蓝压暗：按钮 #5288c1，链接 #6ab4f4 */
+  --accent: #5288c1;
+  --accent-foreground: #ffffff;
+  --secondary: #6ab4f4;
+  --secondary-foreground: #0e1621;
+  --link: #6ab4f4;
+
+  --default: #293a4c;
+  --default-foreground: #ffffff;
+  --default-50: #17212b;
+  --default-100: #1f2b38;
+  --default-200: #293a4c;
+  --default-300: #33475c;
+  --default-400: #56697e;
+  --default-500: #7e93a8;
+  --default-600: #a8b7c6;
+  --default-700: #d3dce5;
+
+  --success: #5dc452;
+  --success-foreground: #0e1621;
+  --warning: #e9a23b;
+  --warning-foreground: #0e1621;
+  --danger: #d75a5a;
+  --danger-foreground: #ffffff;
+
+  --border: rgb(255 255 255 / 0.12);
+}
+
+html.dark,
+html[data-theme='dark'] {
+  background-image: linear-gradient(150deg, #0b1420 0%, #131d29 45%, #0d1826 100%);
+  background-attachment: fixed;
+}

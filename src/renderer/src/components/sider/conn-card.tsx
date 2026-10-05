@@ -43,8 +43,8 @@ const ConnCard: React.FC<Props> = (props) => {
     customTrayIconSysProxy = '',
     customTrayIconTun = '',
     trayIconAutoTint = false,
-    trayIconSysProxyColor = '#3b82f6',
-    trayIconTunColor = '#f59e0b',
+    trayIconSysProxyColor = '#3390ec',
+    trayIconTunColor = '#3fb950',
     sysProxy,
     connectionCardStatus = 'col-span-2',
     disableAnimation = false

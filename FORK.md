@@ -15,13 +15,22 @@
 设置 → 外观设置：
 
 1. 「自定义托盘图标」选一张图，支持 PNG / JPG / WebP / SVG（SVG 会在裁剪弹窗里转成 PNG 再保存）。
-2. 打开「按状态自动着色」，用两个取色器调颜色（默认蓝 `#3b82f6`、琥珀 `#f59e0b`）。
+2. 打开「按状态自动着色」，用两个取色器调颜色（默认蓝 `#3390ec`、绿 `#3fb950`；蓝与 Tinted 主题的强调色同源）。
    会用上面那张图自动生成两个状态的着色版本，只有颜色进 app config，生成出来的 PNG 存在数据目录的
    `tray-icons.json` 缓存里（派生数据不进配置、不进备份）。
 3. 不开自动着色也行，手动给两个状态各选一张图；留空则沿用默认图标。
 
 取值优先级：**虚拟网卡 > 系统代理 > 默认**。托盘菜单勾选、全局快捷键、SSID guard、设置页开关
 引起的状态变化都会立即切换图标；macOS 上开「显示网速」时也会用当前状态的图标做合成底图。
+
+## 主题：Tinted
+
+`themes/tinted.css` 主题：浅色用 `#3390ec`铺窗口底色，深色（`#17212b` / `#5288c1`）只覆盖 HeroUI 的调色板变量，不动布局、圆角和阴影，所以亮/暗模式都跟着系统切换。
+
+装法是把文件丢进数据目录的 `themes/`（Linux 上是 `~/.config/sparkle/themes/`，Windows 是
+`%APPDATA%\sparkle\themes\`，macOS 是 `~/Library/Application Support/sparkle/themes/`），
+然后在 设置 → 外观设置 → 自定义主题 里选「Tinted」；也可以直接改 `config.yaml` 的
+`customTheme: tinted.css`。
 
 ## 新增配置项
 
@@ -30,8 +39,8 @@
 | `customTrayIconSysProxy` | `''`      | 开启系统代理时使用的图标（data URL 或文件路径） |
 | `customTrayIconTun`      | `''`      | 开启虚拟网卡时使用的图标                        |
 | `trayIconAutoTint`       | `false`   | 用默认图标自动生成上面两个状态的着色版本        |
-| `trayIconSysProxyColor`  | `#3b82f6` | 自动着色时系统代理用的颜色                      |
-| `trayIconTunColor`       | `#f59e0b` | 自动着色时虚拟网卡用的颜色                      |
+| `trayIconSysProxyColor`  | `#3390ec` | 自动着色时系统代理用的颜色                      |
+| `trayIconTunColor`       | `#3fb950` | 自动着色时虚拟网卡用的颜色                      |
 | `removeTimeoutProxies`   | `false`   | 测速后把超时节点从列表里删掉，重测也不再测它们  |
 
 ## 测速后删除超时节点
