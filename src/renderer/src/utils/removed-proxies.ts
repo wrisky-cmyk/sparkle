@@ -1,12 +1,12 @@
 import type { ProxyTestProfileResult, ProxyTestStore } from '../../../shared/proxy-test'
 import { getProxyTestStore, setProxyTestStore } from '@renderer/utils/ipc'
 
-// 测速结果（超时名单 + 已测名单）由主进程持有，这里只是内存镜像：
+// 测速结果（删除名单 + 已测名单 + 下载速度）由主进程持有，这里只是内存镜像：
 // 一致性问题交给单一数据源解决，渲染进程不再往 localStorage 另存一份。
 // 名单只由页面上真正发起的测速结果决定（超时的加进来、通的去掉），不扫 mihomo 的
 // history，免得 url-test 组的后台健康检查把节点顺手删掉。
 const EMPTY_NAMES: ReadonlySet<string> = new Set<string>()
-const EMPTY_RESULT: ProxyTestProfileResult = { removed: [], tested: [] }
+const EMPTY_RESULT: ProxyTestProfileResult = { removed: [], tested: [], speeds: {} }
 // v1 版本在 localStorage 里另存过一份超时名单，首次加载时搬到主进程
 const LEGACY_STORAGE_KEY = 'removedTimeoutProxies2'
 
@@ -14,9 +14,11 @@ let store: ProxyTestStore = {}
 let loaded = false
 let loadPromise: Promise<boolean> | undefined
 let revision = 0
+let speedCommitTimer: ReturnType<typeof setTimeout> | undefined
 const listeners = new Set<() => void>()
 const removedCache = new Map<string, { revision: number; names: ReadonlySet<string> }>()
 const testedCache = new Map<string, { revision: number; names: ReadonlySet<string> }>()
+const speedsCache = new Map<string, { revision: number; speeds: Record<string, number> }>()
 
 function readLegacyStore(): ProxyTestStore {
   const legacy: ProxyTestStore = {}
@@ -46,7 +48,11 @@ function ensureLoaded(): Promise<boolean> {
       const legacy = readLegacyStore()
       Object.entries(legacy).forEach(([profileId, item]) => {
         if (store[profileId]?.removed?.length) return
-        store[profileId] = { removed: item.removed, tested: store[profileId]?.tested ?? [] }
+        store[profileId] = {
+          removed: item.removed,
+          tested: store[profileId]?.tested ?? [],
+          speeds: store[profileId]?.speeds ?? {}
+        }
         migrated = true
       })
       if (migrated) {
@@ -64,6 +70,7 @@ function ensureLoaded(): Promise<boolean> {
       revision += 1
       removedCache.clear()
       testedCache.clear()
+      speedsCache.clear()
       listeners.forEach((listener) => listener())
       return true
     })
@@ -75,12 +82,26 @@ function ensureLoaded(): Promise<boolean> {
   return loadPromise
 }
 
-function commit(): void {
+function commit(reload = true): void {
   revision += 1
   removedCache.clear()
   testedCache.clear()
-  // 主进程写完会重新生成配置并热重载，失败也不影响页面显示
-  void setProxyTestStore(store).catch(() => {})
+  speedsCache.clear()
+  if (!reload) {
+    // 下载测速会连续产生结果，合并落盘；只有删除名单变化才需要重载内核
+    if (speedCommitTimer) clearTimeout(speedCommitTimer)
+    speedCommitTimer = setTimeout(() => {
+      speedCommitTimer = undefined
+      void setProxyTestStore(store, false).catch(() => {})
+    }, 500)
+  } else {
+    if (speedCommitTimer) {
+      clearTimeout(speedCommitTimer)
+      speedCommitTimer = undefined
+    }
+    // 主进程写完会重新生成配置并热重载，失败也不影响页面显示
+    void setProxyTestStore(store, true).catch(() => {})
+  }
   listeners.forEach((listener) => listener())
 }
 
@@ -89,25 +110,31 @@ function resultOf(profileId: string): ProxyTestProfileResult {
   if (!current) return EMPTY_RESULT
   return {
     removed: Array.isArray(current.removed) ? current.removed : [],
-    tested: Array.isArray(current.tested) ? current.tested : []
+    tested: Array.isArray(current.tested) ? current.tested : [],
+    speeds: current.speeds && typeof current.speeds === 'object' ? current.speeds : {}
   }
 }
 
 function mutate(
   profileId: string,
-  update: (current: ProxyTestProfileResult) => ProxyTestProfileResult | undefined
+  update: (current: ProxyTestProfileResult) => ProxyTestProfileResult | undefined,
+  reload = true
 ): void {
   if (!profileId) return
   void ensureLoaded().then((ok) => {
     if (!ok) return
     const next = update(resultOf(profileId))
     if (!next) return
-    if (next.removed.length === 0 && next.tested.length === 0) {
+    if (
+      next.removed.length === 0 &&
+      next.tested.length === 0 &&
+      Object.keys(next.speeds ?? {}).length === 0
+    ) {
       delete store[profileId]
     } else {
       store = { ...store, [profileId]: next }
     }
-    commit()
+    commit(reload)
   })
 }
 
@@ -150,12 +177,27 @@ export function getTestedProxyNames(profileId: string): ReadonlySet<string> {
   return snapshotOf(testedCache, profileId, resultOf(profileId).tested)
 }
 
+export function subscribeProxySpeeds(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+export function getProxySpeeds(profileId: string): Record<string, number> {
+  const cached = speedsCache.get(profileId)
+  if (cached && cached.revision === revision) return cached.speeds
+  const speeds = { ...resultOf(profileId).speeds }
+  speedsCache.set(profileId, { revision, speeds })
+  return speeds
+}
+
 export function addRemovedProxies(profileId: string, names: readonly string[]): void {
   if (names.length === 0) return
   mutate(profileId, (current) => {
     const removed = mergeNames(current.removed, names)
     if (!removed) return undefined
-    return { removed, tested: current.tested }
+    return { removed, tested: current.tested, speeds: current.speeds }
   })
 }
 
@@ -167,7 +209,7 @@ export function removeRemovedProxies(profileId: string, names: readonly string[]
     const recovered = new Set(names)
     const removed = current.removed.filter((name) => !recovered.has(name))
     if (removed.length === current.removed.length) return undefined
-    return { removed, tested: current.tested }
+    return { removed, tested: current.tested, speeds: current.speeds }
   })
 }
 
@@ -176,7 +218,7 @@ export function addTestedProxies(profileId: string, names: readonly string[]): v
   mutate(profileId, (current) => {
     const tested = mergeNames(current.tested, names)
     if (!tested) return undefined
-    return { removed: current.removed, tested }
+    return { removed: current.removed, tested, speeds: current.speeds }
   })
 }
 
@@ -186,10 +228,56 @@ export function replaceTestedProxies(profileId: string, names: readonly string[]
   if (names.length === 0) return
   mutate(profileId, (current) => {
     const tested = [...new Set(names)]
+    const allowed = new Set(tested)
+    const speeds = Object.fromEntries(
+      Object.entries(current.speeds ?? {}).filter(([name]) => allowed.has(name))
+    )
     const unchanged =
-      tested.length === current.tested.length && tested.every((name, i) => name === current.tested[i])
+      tested.length === current.tested.length &&
+      tested.every((name, i) => name === current.tested[i]) &&
+      Object.keys(speeds).length === Object.keys(current.speeds ?? {}).length
     if (unchanged) return undefined
-    return { removed: current.removed, tested }
+    return { removed: current.removed, tested, speeds }
+  })
+}
+
+export function setProxySpeeds(profileId: string, speeds: Record<string, number>): void {
+  const entries = Object.entries(speeds).filter(
+    ([name, speed]) => name.length > 0 && Number.isFinite(speed) && speed > 0
+  )
+  if (entries.length === 0) return
+  mutate(
+    profileId,
+    (current) => ({
+      removed: current.removed,
+      tested: current.tested,
+      speeds: { ...current.speeds, ...Object.fromEntries(entries) }
+    }),
+    false
+  )
+}
+
+export function removeProxySpeeds(profileId: string, names: readonly string[]): void {
+  if (names.length === 0) return
+  mutate(
+    profileId,
+    (current) => {
+      const currentSpeeds = current.speeds
+      if (!currentSpeeds || names.every((name) => !(name in currentSpeeds))) return undefined
+      const speeds = { ...currentSpeeds }
+      names.forEach((name) => {
+        delete speeds[name]
+      })
+      return { removed: current.removed, tested: current.tested, speeds }
+    },
+    false
+  )
+}
+
+export function clearRemovedProxies(profileId: string): void {
+  mutate(profileId, (current) => {
+    if (current.removed.length === 0) return undefined
+    return { removed: [], tested: current.tested, speeds: current.speeds }
   })
 }
 

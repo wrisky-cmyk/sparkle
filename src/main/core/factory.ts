@@ -21,6 +21,7 @@ import { deepMerge } from '../utils/merge'
 import vm from 'vm'
 import { existsSync, writeFileSync } from 'fs'
 import path from 'path'
+import { applySpeedTestConfig } from './speedTestConfig'
 
 let runtimeConfigStr: string,
   rawProfileStr: string,
@@ -61,8 +62,10 @@ export async function generateProfile(): Promise<void> {
   }
 
   await cleanProfile(profile, controlDns, controlSniff)
-  // 测速删掉的超时节点从代理组里去掉，自动选择组就不会再碰它们
+  // 测速删掉的超时节点从配置里彻底移除，避免进入内核内存
   await applyExcludedProxies(profile, current)
+  // 给下载测速加本机隐藏监听器，用户流量仍走原来的入站
+  applySpeedTestConfig(profile)
 
   runtimeConfig = profile
   runtimeConfigStr = stringifyYaml(profile)

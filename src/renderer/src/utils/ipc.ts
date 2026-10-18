@@ -130,6 +130,17 @@ export async function mihomoGroupDelay(group: string, url?: string): Promise<Con
   return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('mihomoGroupDelay', group, url))
 }
 
+export async function mihomoProxySpeed(
+  proxy: string,
+  url?: string,
+  bytes?: number,
+  timeout?: number
+): Promise<ControllerProxySpeedResult> {
+  return ipcErrorWrapper(
+    await window.electron.ipcRenderer.invoke('mihomoProxySpeed', proxy, url, bytes, timeout)
+  )
+}
+
 export async function mihomoRulesDisable(rules: Record<string, boolean>): Promise<void> {
   return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('mihomoRulesDisable', rules))
 }
@@ -224,8 +235,10 @@ export async function getProxyTestStore(): Promise<ProxyTestStore> {
   return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('getProxyTestStore'))
 }
 
-export async function setProxyTestStore(store: ProxyTestStore): Promise<void> {
-  return ipcErrorWrapper(await window.electron.ipcRenderer.invoke('setProxyTestStore', store))
+export async function setProxyTestStore(store: ProxyTestStore, reload = true): Promise<void> {
+  return ipcErrorWrapper(
+    await window.electron.ipcRenderer.invoke('setProxyTestStore', store, reload)
+  )
 }
 
 // 开关切换后重新生成核心配置并热重载

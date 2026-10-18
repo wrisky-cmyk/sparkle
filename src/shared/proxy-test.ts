@@ -4,6 +4,8 @@ export interface ProxyTestProfileResult {
   removed: string[]
   // 最近一次测速拿到结果的节点名：更新订阅后的自动测速只补测没测过的
   tested: string[]
+  // 最近一次下载测速结果，单位 B/s；按节点名持久化，供排序和界面展示
+  speeds?: Record<string, number>
 }
 
 export type ProxyTestStore = Record<string, ProxyTestProfileResult>

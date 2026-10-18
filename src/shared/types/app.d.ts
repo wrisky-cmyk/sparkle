@@ -48,7 +48,7 @@ interface AppConfig {
   disableSystemCA: boolean
   disableNftables: boolean
   safePaths: string[]
-  proxyDisplayOrder: 'default' | 'delay' | 'name'
+  proxyDisplayOrder: 'default' | 'delay' | 'speed' | 'name'
   removeTimeoutProxies?: boolean
   proxyDisplayLayout: 'hidden' | 'single' | 'double'
   groupDisplayLayout: 'hidden' | 'single' | 'double'
@@ -126,6 +126,12 @@ interface AppConfig {
   delayTestUrl?: string
   delayTestUrlScope?: 'group' | 'global'
   delayTestTimeout?: number
+  downloadSpeedTestEnabled?: boolean
+  downloadSpeedTestAuto?: boolean
+  downloadSpeedTestUrl?: string
+  downloadSpeedTestBytes?: number
+  downloadSpeedTestTimeout?: number
+  downloadSpeedTestConcurrency?: number
   encryptedPassword?: number[]
   rememberProxyGroupOpenState?: boolean
   controlDns?: boolean
@@ -188,6 +194,7 @@ interface ProfileItem {
   substore?: boolean
   locked?: boolean
   autoUpdate?: boolean
+  metered?: boolean
 }
 
 interface SubscriptionUserInfo {

@@ -1,5 +1,11 @@
 import os from 'os'
 import { systemCoreDefaultPath, systemCoreOnlyBuild } from '../../shared/build-flags'
+import {
+  DEFAULT_DOWNLOAD_SPEED_TEST_BYTES,
+  DEFAULT_DOWNLOAD_SPEED_TEST_CONCURRENCY,
+  DEFAULT_DOWNLOAD_SPEED_TEST_TIMEOUT,
+  DEFAULT_DOWNLOAD_SPEED_TEST_URL
+} from '../../shared/speed-test'
 
 export const defaultConfig: AppConfig = {
   core: systemCoreOnlyBuild ? 'system' : 'mihomo',
@@ -76,6 +82,12 @@ export const defaultConfig: AppConfig = {
   delayTestConcurrency: 50,
   delayTestUseGroupApi: false,
   delayTestUrlScope: 'group',
+  downloadSpeedTestEnabled: true,
+  downloadSpeedTestAuto: false,
+  downloadSpeedTestUrl: DEFAULT_DOWNLOAD_SPEED_TEST_URL,
+  downloadSpeedTestBytes: DEFAULT_DOWNLOAD_SPEED_TEST_BYTES,
+  downloadSpeedTestTimeout: DEFAULT_DOWNLOAD_SPEED_TEST_TIMEOUT,
+  downloadSpeedTestConcurrency: DEFAULT_DOWNLOAD_SPEED_TEST_CONCURRENCY,
   showProxyDetailTooltip: false
 }
 

@@ -5,6 +5,7 @@ import { mihomoUnfixedProxy } from '@renderer/utils/ipc'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FaMapPin } from 'react-icons/fa6'
 import ProxyDetailTooltip from './proxy-detail-tooltip'
+import { formatSpeedShort } from '../../../../shared/speed-test'
 
 interface Props {
   mutateProxies: () => void
@@ -16,6 +17,7 @@ interface Props {
   showGroupSelectedProxy: boolean
   showProxyDetailTooltip: boolean
   proxy: ControllerProxiesDetail | ControllerGroupDetail
+  speed?: number
   group: ControllerMixedGroup
   onSelect: (group: string, proxy: string) => void
   selected: boolean
@@ -35,6 +37,7 @@ const ProxyItem: React.FC<Props> = (props) => {
     showProxyDetailTooltip,
     group,
     proxy,
+    speed = 0,
     selected,
     onSelect,
     onProxyDelay
@@ -156,6 +159,14 @@ const ProxyItem: React.FC<Props> = (props) => {
     return delay.toString()
   }
 
+  function speedColor(value: number): 'primary' | 'success' | 'warning' | 'danger' {
+    if (value >= 5 * 1024 * 1024) return 'success'
+    if (value >= 1024 * 1024) return 'warning'
+    return 'danger'
+  }
+
+  const hasSpeed = speed > 0
+
   const onDelay = (): void => {
     setLoading(true)
     onProxyDelay(proxy, group).finally(() => {
@@ -239,12 +250,18 @@ const ProxyItem: React.FC<Props> = (props) => {
                       isIconOnly
                       onPress={onDelay}
                       variant="ghost"
-                      data-color={delayColor(delay)}
-                      className="h-8 w-8 min-w-8 p-0 text-xs"
+                      data-color={hasSpeed ? speedColor(speed) : delayColor(delay)}
+                      className="h-8 w-auto min-w-8 px-1 p-0 text-xs"
                       isPending={loading}
                       isDisabled={loading}
                     >
-                      {loading ? <Spinner size="sm" color="current" /> : delayText(delay)}
+                      {loading ? (
+                        <Spinner size="sm" color="current" />
+                      ) : hasSpeed ? (
+                        `↓${formatSpeedShort(speed)}`
+                      ) : (
+                        delayText(delay)
+                      )}
                     </Button>
                   </div>
                 </>
@@ -285,12 +302,18 @@ const ProxyItem: React.FC<Props> = (props) => {
                         isIconOnly
                         onPress={onDelay}
                         variant="ghost"
-                        data-color={delayColor(delay)}
-                        className="h-full w-8 min-w-8 p-0 text-sm"
+                        data-color={hasSpeed ? speedColor(speed) : delayColor(delay)}
+                        className="h-full w-auto min-w-8 px-1 p-0 text-sm"
                         isPending={loading}
                         isDisabled={loading}
                       >
-                        {loading ? <Spinner size="sm" color="current" /> : delayText(delay)}
+                        {loading ? (
+                          <Spinner size="sm" color="current" />
+                        ) : hasSpeed ? (
+                          `↓${formatSpeedShort(speed)}`
+                        ) : (
+                          delayText(delay)
+                        )}
                       </Button>
                     </div>
                   </div>
@@ -303,6 +326,7 @@ const ProxyItem: React.FC<Props> = (props) => {
       {showProxyDetailTooltip && (
         <ProxyDetailTooltip
           proxy={proxy}
+          speed={speed}
           anchorEl={showTooltip ? wrapperRef.current : null}
           visible={showTooltip}
         />

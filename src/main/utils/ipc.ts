@@ -67,6 +67,7 @@ import {
 } from '../resolve/server'
 import { quitWithoutCore, restartCore, startNetworkDetection, stopCore } from '../core/manager'
 import { scheduleCoreConfigReload } from '../core/configReload'
+import { testProxyDownloadSpeed } from '../core/speedTest'
 import { stopNetworkDetection } from '../core/network'
 import {
   checkCorePermission,
@@ -296,6 +297,9 @@ export function registerIpcMainHandlers(): void {
     ipcErrorWrapper(mihomoProxyDelay)(proxy, url, provider)
   )
   handle('mihomoGroupDelay', (_e, group, url) => ipcErrorWrapper(mihomoGroupDelay)(group, url))
+  handle('mihomoProxySpeed', (_e, proxy, url, bytes, timeout) =>
+    ipcErrorWrapper(testProxyDownloadSpeed)(proxy, url, bytes, timeout)
+  )
   handle('mihomoRulesDisable', (_e, rules) => ipcErrorWrapper(mihomoRulesDisable)(rules))
   handle('patchMihomoConfig', (_e, patch) => ipcErrorWrapper(patchMihomoConfig)(patch))
   handle('restartMihomoLogs', ipcErrorWrapper(restartMihomoLogs))
@@ -316,11 +320,11 @@ export function registerIpcMainHandlers(): void {
   handle('setProfileConfig', (_e, config) => ipcErrorWrapper(setProfileConfig)(config))
   handle(
     'setProxyTestStore',
-    (_e, store) =>
-      ipcErrorWrapper(async (value: unknown) => {
+    (_e, store, reload = true) =>
+      ipcErrorWrapper(async (value: unknown, shouldReload: boolean) => {
         await setProxyTestStore(value)
-        scheduleCoreConfigReload()
-      })(store)
+        if (shouldReload) scheduleCoreConfigReload()
+      })(store, reload)
   )
   handle('getProxyTestStore', ipcErrorWrapper(getProxyTestStore))
   // 开关切换时不用改名单，直接重新应用一次（关掉就把节点放回来）

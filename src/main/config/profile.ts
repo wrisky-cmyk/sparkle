@@ -151,6 +151,7 @@ export async function createProfile(item: Partial<ProfileItem>): Promise<Profile
     ua: item.ua,
     verify: item.verify ?? false,
     autoUpdate: item.autoUpdate ?? true,
+    metered: item.metered ?? false,
     substore: item.substore || false,
     interval: item.interval || 0,
     override: item.override || [],

@@ -363,6 +363,35 @@ const EditInfoModal: React.FC<Props> = (props) => {
                     </Switch>
                   )}
                 {renderField(
+                  '计费订阅',
+                  <Switch
+                    aria-label="计费订阅"
+                    size="sm"
+                    isSelected={values.metered ?? false}
+                    onChange={(v) => {
+                      setValues({ ...values, metered: v })
+                    }}
+                  >
+                    <Switch.Content>
+                      <Switch.Control>
+                        <Switch.Thumb />
+                      </Switch.Control>
+                    </Switch.Content>
+                  </Switch>,
+                  {
+                    actions: (
+                      <Tooltip>
+                        <Tooltip.Trigger>
+                          <Button aria-label="说明" isIconOnly size="sm" variant="ghost">
+                            <IoIosHelpCircle className="text-lg" />
+                          </Button>
+                        </Tooltip.Trigger>
+                        <Tooltip.Content>开启后只测延迟，不进行下载测速，避免消耗订阅流量</Tooltip.Content>
+                      </Tooltip>
+                    )
+                  }
+                )}
+                {renderField(
                   'age 公钥',
                   <InputGroup data-setting-input="edit-modal" variant="secondary">
                     <InputGroup.Input

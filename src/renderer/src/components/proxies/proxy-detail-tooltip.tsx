@@ -1,9 +1,11 @@
 import { Chip, Separator, Surface } from '@heroui/react'
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { formatSpeed } from '../../../../shared/speed-test'
 
 interface Props {
   proxy: ControllerProxiesDetail | ControllerGroupDetail
+  speed?: number
   anchorEl: HTMLElement | null
   visible: boolean
 }
@@ -47,7 +49,7 @@ function getDelaySvgColor(delay: number): string {
   return 'var(--color-warning)'
 }
 
-const ProxyDetailTooltip: React.FC<Props> = ({ proxy, anchorEl, visible }) => {
+const ProxyDetailTooltip: React.FC<Props> = ({ proxy, speed = 0, anchorEl, visible }) => {
   const [pos, setPos] = useState<{ top: number; left: number; side: 'left' | 'right' } | null>(null)
   const [finalTop, setFinalTop] = useState<number | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -150,6 +152,15 @@ const ProxyDetailTooltip: React.FC<Props> = ({ proxy, anchorEl, visible }) => {
           >
             {proxy.alive ? '在线' : '离线'}
           </Chip>
+
+          {speed > 0 && (
+            <>
+              <span className="text-[10px] text-muted">下载</span>
+              <Chip className="justify-self-end" color="success" variant="soft" size="sm">
+                ↓ {formatSpeed(speed)}
+              </Chip>
+            </>
+          )}
 
           {proxy.udp !== undefined && (
             <>

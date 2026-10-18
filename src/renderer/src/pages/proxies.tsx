@@ -10,7 +10,8 @@ import {
   mihomoCloseConnections,
   mihomoGroups,
   mihomoGroupDelay,
-  mihomoProxyDelay
+  mihomoProxyDelay,
+  mihomoProxySpeed
 } from '@renderer/utils/ipc'
 import { FaLocationCrosshairs } from 'react-icons/fa6'
 import {
@@ -40,12 +41,23 @@ import { subscribeProfileUpdated, takeProfileUpdated } from '@renderer/utils/pro
 import {
   addRemovedProxies,
   addTestedProxies,
+  getProxySpeeds,
   getRemovedProxyNames,
   getTestedProxyNames,
+  removeProxySpeeds,
   replaceTestedProxies,
   removeRemovedProxies,
+  setProxySpeeds,
+  subscribeProxySpeeds,
   subscribeRemovedProxies
 } from '@renderer/utils/removed-proxies'
+import {
+  DEFAULT_DOWNLOAD_SPEED_TEST_BYTES,
+  DEFAULT_DOWNLOAD_SPEED_TEST_CONCURRENCY,
+  DEFAULT_DOWNLOAD_SPEED_TEST_TIMEOUT,
+  DEFAULT_DOWNLOAD_SPEED_TEST_URL,
+  normalizeDownloadSpeedTestConcurrency
+} from '../../../shared/speed-test'
 
 type ProxyLike = ControllerProxiesDetail | ControllerGroupDetail
 
@@ -63,6 +75,28 @@ function compareProxyDelay(a: ProxyLike, b: ProxyLike): number {
   if (delayA === 0) return 1
   if (delayB === 0) return -1
   return delayA - delayB
+}
+
+function getProxySpeed(proxy: ProxyLike, speeds: Record<string, number>): number {
+  return speeds[proxy.name] ?? 0
+}
+
+function compareProxySpeed(
+  a: ProxyLike,
+  b: ProxyLike,
+  speeds: Record<string, number>
+): number {
+  const speedA = getProxySpeed(a, speeds)
+  const speedB = getProxySpeed(b, speeds)
+  if (speedA === 0 && speedB === 0) return compareProxyDelay(a, b)
+  if (speedA === 0) return 1
+  if (speedB === 0) return -1
+  return speedB - speedA
+}
+
+function getProxySpeedRank(proxy: ProxyLike, speeds: Record<string, number>): number {
+  if (getProxySpeed(proxy, speeds) > 0) return 0
+  return getProxyDelayRank(proxy)
 }
 
 function getProxyDelayRank(proxy: ProxyLike): number {
@@ -235,6 +269,12 @@ const Proxies: React.FC = () => {
     delayTestUrlScope = 'group',
     delayTestUseGroupApi = false,
     delayTestConcurrency,
+    downloadSpeedTestEnabled = true,
+    downloadSpeedTestAuto = false,
+    downloadSpeedTestUrl = DEFAULT_DOWNLOAD_SPEED_TEST_URL,
+    downloadSpeedTestBytes = DEFAULT_DOWNLOAD_SPEED_TEST_BYTES,
+    downloadSpeedTestTimeout = DEFAULT_DOWNLOAD_SPEED_TEST_TIMEOUT,
+    downloadSpeedTestConcurrency = DEFAULT_DOWNLOAD_SPEED_TEST_CONCURRENCY,
     rememberProxyGroupOpenState = false
   } = appConfig || {}
   const [cols, setCols] = useState(1)
@@ -255,13 +295,16 @@ const Proxies: React.FC = () => {
   // 每个订阅一份「测速超时被删掉」名单，记在本地；更新订阅/切换代理都不清，
   // 更新后新出现的节点自然会显示出来
   const profileId = profileConfig?.current ?? ''
+  const currentProfile = profileConfig?.items.find((item) => item.id === profileId)
+  const metered = currentProfile?.metered ?? false
   const removedProxies = useSyncExternalStore(subscribeRemovedProxies, () =>
     getRemovedProxyNames(profileId)
   )
+  const proxySpeeds = useSyncExternalStore(subscribeProxySpeeds, () => getProxySpeeds(profileId))
   const testedProxies = useSyncExternalStore(subscribeRemovedProxies, () =>
     getTestedProxyNames(profileId)
   )
-  // 开关只切换「排不排除」，名单本身不动；开关一变就让主进程重新生成配置并热重载，
+  // 开关只切换「删不删除」，名单本身不动；开关一变就让主进程重新生成配置并热重载，
   // 关掉时节点马上回来、打开时马上消失
   const prevRemoveTimeoutProxiesRef = useRef<boolean | undefined>(undefined)
   useEffect(() => {
@@ -365,13 +408,18 @@ const Proxies: React.FC = () => {
         if (proxyDisplayOrder === 'delay') {
           groupProxies = [...groupProxies].sort(compareProxyDelay)
         }
+        if (proxyDisplayOrder === 'speed') {
+          groupProxies = [...groupProxies].sort((a, b) =>
+            compareProxySpeed(a, b, proxySpeeds)
+          )
+        }
         if (proxyDisplayOrder === 'name') {
           groupProxies = [...groupProxies].sort((a, b) => a.name.localeCompare(b.name))
         }
         if (removeTimeoutProxies) {
-          // 测通的排最前，没测过的次之；组内保持上面选定的排序（sort 稳定）
+          // 有速度/延迟的排最前，没测过的次之；组内保持上面选定的排序（sort 稳定）
           groupProxies = [...groupProxies].sort(
-            (a, b) => getProxyDelayRank(a) - getProxyDelayRank(b)
+            (a, b) => getProxySpeedRank(a, proxySpeeds) - getProxySpeedRank(b, proxySpeeds)
           )
         }
 
@@ -389,6 +437,7 @@ const Proxies: React.FC = () => {
     proxyDisplayOrder,
     removeTimeoutProxies,
     removedProxies,
+    proxySpeeds,
     cols,
     searchValue
   ])
@@ -418,7 +467,7 @@ const Proxies: React.FC = () => {
 
   // 名单就是「上一次测速的结果」：只记页面上真正测出来的结果（不扫 mihomo 的
   // history，否则 url-test 的后台健康检查也会把节点删掉），超时的加进来、通的去掉。
-  // 开关只管这份名单用不用（隐藏 + 从核心配置里排除），记录本身一直更新。
+  // 开关只管这份名单用不用（彻底删除 + 从核心配置里移除），记录本身一直更新。
   const recordTimeoutProxies = useCallback(
     (names: readonly string[]): void => {
       if (names.length === 0) return
@@ -435,6 +484,41 @@ const Proxies: React.FC = () => {
     [profileId]
   )
 
+  const canDownloadTest = downloadSpeedTestEnabled && !metered
+  const runSpeedTests = useCallback(
+    async (proxies: ProxyLike[]): Promise<void> => {
+      if (!canDownloadTest) return
+      const targets = proxies.filter((proxy) => !('now' in proxy))
+      if (targets.length === 0) return
+      await runDelayTestsWithConcurrency(
+        targets,
+        normalizeDownloadSpeedTestConcurrency(downloadSpeedTestConcurrency),
+        async (proxy) => {
+          try {
+            const result = await mihomoProxySpeed(
+              proxy.name,
+              downloadSpeedTestUrl || undefined,
+              downloadSpeedTestBytes,
+              downloadSpeedTestTimeout
+            )
+            setProxySpeeds(profileId, { [proxy.name]: result.bytesPerSecond })
+          } catch {
+            // 延迟能通但下载失败时保留旧速度，避免把节点误判成超时
+            removeProxySpeeds(profileId, [proxy.name])
+          }
+        }
+      )
+    },
+    [
+      canDownloadTest,
+      downloadSpeedTestConcurrency,
+      downloadSpeedTestUrl,
+      downloadSpeedTestBytes,
+      downloadSpeedTestTimeout,
+      profileId
+    ]
+  )
+
   // 更新订阅后自动测一遍：只补测没测过的节点（已测过的和已删掉的都跳过），
   // 大订阅更新完不用把几千个节点重测一遍
   const autoTestingRef = useRef(false)
@@ -449,7 +533,12 @@ const Proxies: React.FC = () => {
         group.all.forEach((proxy) => {
           if (!proxy || seen.has(proxy.name)) return
           seen.add(proxy.name)
-          if (removedProxies.has(proxy.name) || testedProxies.has(proxy.name)) return
+          if (
+            (removeTimeoutProxies && removedProxies.has(proxy.name)) ||
+            testedProxies.has(proxy.name)
+          ) {
+            return
+          }
           targets.push({ proxy, url: getDelayTestUrl(group) })
         })
       })
@@ -462,10 +551,12 @@ const Proxies: React.FC = () => {
 
       const timeoutNames: string[] = []
       const okNames: string[] = []
+      const okTargets: ProxyLike[] = []
       await runDelayTestsWithConcurrency(targets, delayTestConcurrency, async (target) => {
         try {
           await mihomoProxyDelay(target.proxy.name, target.url, getProviderName(target.proxy))
           okNames.push(target.proxy.name)
+          okTargets.push(target.proxy)
         } catch {
           timeoutNames.push(target.proxy.name)
         }
@@ -476,11 +567,12 @@ const Proxies: React.FC = () => {
         // 免得它们再也轮不到重测
         notify('自动测速全部超时，未删除节点（请检查网络或测速地址）', { variant: 'warning' })
       } else {
+        if (downloadSpeedTestAuto) await runSpeedTests(okTargets)
         recordTimeoutProxies(timeoutNames)
         recordRecoveredProxies(okNames)
         replaceTestedProxies(profileId, allNames)
         if (timeoutNames.length > 0) {
-          notify(`自动测速完成，隐藏 ${timeoutNames.length} 个超时节点`, { variant: 'success' })
+          notify(`自动测速完成，删除 ${timeoutNames.length} 个超时节点`, { variant: 'success' })
         }
       }
       mutate()
@@ -492,9 +584,12 @@ const Proxies: React.FC = () => {
   }, [
     groups,
     profileId,
+    removeTimeoutProxies,
     removedProxies,
     testedProxies,
     delayTestConcurrency,
+    downloadSpeedTestAuto,
+    runSpeedTests,
     getDelayTestUrl,
     recordTimeoutProxies,
     recordRecoveredProxies,
@@ -510,7 +605,7 @@ const Proxies: React.FC = () => {
   }, [])
   useEffect(() => {
     if (!autoTestPending) return
-    if (!removeTimeoutProxies) {
+    if (!removeTimeoutProxies && !(downloadSpeedTestAuto && downloadSpeedTestEnabled)) {
       setAutoTestPending(false)
       return
     }
@@ -520,7 +615,14 @@ const Proxies: React.FC = () => {
       void runAutoDelayTest()
     }, 2500)
     return () => clearTimeout(timer)
-  }, [autoTestPending, removeTimeoutProxies, groups, runAutoDelayTest])
+  }, [
+    autoTestPending,
+    removeTimeoutProxies,
+    downloadSpeedTestAuto,
+    downloadSpeedTestEnabled,
+    groups,
+    runAutoDelayTest
+  ])
 
   const onProxyDelay = useCallback(
     async (proxy: ProxyLike, group?: ControllerMixedGroup): Promise<ControllerProxiesDelay> => {
@@ -530,6 +632,7 @@ const Proxies: React.FC = () => {
           getDelayTestUrl(group),
           getProviderName(proxy)
         )
+        await runSpeedTests([proxy])
         recordRecoveredProxies([proxy.name])
         return result
       } catch (e) {
@@ -537,7 +640,7 @@ const Proxies: React.FC = () => {
         throw e
       }
     },
-    [getDelayTestUrl, recordTimeoutProxies, recordRecoveredProxies]
+    [getDelayTestUrl, runSpeedTests, recordTimeoutProxies, recordRecoveredProxies]
   )
 
   const setGroupDelaying = useCallback((index: number, value: boolean): void => {
@@ -583,7 +686,7 @@ const Proxies: React.FC = () => {
       setGroupDelaying(index, true)
 
       // 整组测下来一个都没通，多半是核心刚重启或测速地址不通，不是节点的问题，
-      // 这时候一个都不删，免得整组节点全被藏起来
+      // 这时候一个都不删，免得整组节点被误删
       // 返回这轮测速结果可不可信（整组全超时就不记名单，也不记「已测」）
       const recordGroupTimeouts = (timeoutNames: string[]): boolean => {
         if (timeoutNames.length >= proxies.length) {
@@ -596,7 +699,7 @@ const Proxies: React.FC = () => {
       }
 
       try {
-        // 开着「测速后删除超时节点」时不走组测速接口：那个接口会把组里所有节点
+        // 开着「测速后彻底删除超时节点」时不走组测速接口：那个接口会把组里所有节点
         // （包括已经删掉的）都测一遍，正好白等一轮超时
         if (delayTestUseGroupApi && !removeTimeoutProxies) {
           const result = await mihomoGroupDelay(group.name, testUrl)
@@ -604,6 +707,7 @@ const Proxies: React.FC = () => {
           const timeoutNames = proxies
             .filter((proxy) => !(result[proxy.name] > 0))
             .map((proxy) => proxy.name)
+          await runSpeedTests(proxies.filter((proxy) => result[proxy.name] > 0))
           const valid = recordGroupTimeouts(timeoutNames)
           recordRecoveredProxies(
             proxies.filter((proxy) => result[proxy.name] > 0).map((proxy) => proxy.name)
@@ -614,14 +718,17 @@ const Proxies: React.FC = () => {
 
         const timeoutNames: string[] = []
         const okNames: string[] = []
+        const okProxies: ProxyLike[] = []
         await runDelayTestsWithConcurrency(proxies, delayTestConcurrency, async (proxy) => {
           try {
             await mihomoProxyDelay(proxy.name, testUrl, getProviderName(proxy))
             okNames.push(proxy.name)
+            okProxies.push(proxy)
           } catch {
             timeoutNames.push(proxy.name)
           }
         })
+        await runSpeedTests(okProxies)
         const valid = recordGroupTimeouts(timeoutNames)
         recordRecoveredProxies(okNames)
         if (valid) addTestedProxies(profileId, proxies.map((proxy) => proxy.name))
@@ -637,6 +744,7 @@ const Proxies: React.FC = () => {
       groups,
       delayTestUseGroupApi,
       delayTestConcurrency,
+      runSpeedTests,
       removeTimeoutProxies,
       removedProxies,
       profileId,
@@ -810,6 +918,10 @@ const Proxies: React.FC = () => {
   showGroupSelectedProxyRef.current = showGroupSelectedProxy
   const showProxyDetailTooltipRef = useRef(showProxyDetailTooltip)
   showProxyDetailTooltipRef.current = showProxyDetailTooltip
+  const proxySpeedsRef = useRef(proxySpeeds)
+  proxySpeedsRef.current = proxySpeeds
+  const meteredRef = useRef(metered)
+  meteredRef.current = metered
   const proxyCols2Ref = useRef(proxyCols)
   proxyCols2Ref.current = proxyCols
   const toggleOpenRef = useRef(toggleOpen)
@@ -892,6 +1004,7 @@ const Proxies: React.FC = () => {
           onProxyDelay={onProxyDelayRef.current}
           onSelect={onChangeProxyRef.current}
           proxy={proxy}
+          speed={meteredRef.current ? undefined : proxySpeedsRef.current[proxy.name]}
           group={grps[groupIndex]}
           proxyDisplayLayout={pLayout}
           showGroupSelectedProxy={showGroupSelected}

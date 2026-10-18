@@ -5,7 +5,7 @@ import { appendAppLog } from '../utils/log'
 import { generateProfile } from './factory'
 import { reloadMihomoConfig } from './mihomoApi'
 
-// 测速名单变化后重新生成工作配置并让内核热重载，删掉的节点立刻从组里消失，
+// 测速名单变化后重新生成工作配置并让内核热重载，删掉的节点立刻从配置里消失，
 // 不用等下一次内核重启。多次变化合并成一次，避免测速过程中反复写盘重载。
 const reloadDelay = 1200
 

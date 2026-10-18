@@ -1,5 +1,5 @@
-import { Drawer, Input, InputGroup, ListBox, Select, Switch } from '@heroui/react'
-import React, { useState, useEffect, useRef } from 'react'
+import { Button, Drawer, Input, InputGroup, ListBox, Select, Switch } from '@heroui/react'
+import React, { useState, useEffect, useRef, useSyncExternalStore } from 'react'
 import SettingItem from '../base/base-setting-item'
 import { SettingTabs, settingItemProps } from '../base/base-controls'
 import { useAppConfig } from '@renderer/hooks/use-app-config'
@@ -10,6 +10,20 @@ import {
   MIN_DELAY_TEST_CONCURRENCY,
   normalizeDelayTestConcurrency
 } from '@renderer/utils/delay-test'
+import { useProfileConfig } from '@renderer/hooks/use-profile-config'
+import {
+  clearRemovedProxies,
+  getRemovedProxyNames,
+  subscribeRemovedProxies
+} from '@renderer/utils/removed-proxies'
+import {
+  DEFAULT_DOWNLOAD_SPEED_TEST_BYTES,
+  DEFAULT_DOWNLOAD_SPEED_TEST_CONCURRENCY,
+  DEFAULT_DOWNLOAD_SPEED_TEST_TIMEOUT,
+  DEFAULT_DOWNLOAD_SPEED_TEST_URL,
+  normalizeDownloadSpeedTestBytes,
+  normalizeDownloadSpeedTestConcurrency
+} from '../../../../shared/speed-test'
 
 interface Props {
   onClose: () => void
@@ -21,6 +35,7 @@ const DRAWER_CLOSE_ANIMATION_MS = 700
 const ProxySettingDrawer: React.FC<Props> = (props) => {
   const { onClose, reopenSignal } = props
   const { appConfig, patchAppConfig } = useAppConfig()
+  const { profileConfig } = useProfileConfig()
 
   const {
     proxyCols = 'auto',
@@ -37,12 +52,23 @@ const ProxySettingDrawer: React.FC<Props> = (props) => {
     delayTestUseGroupApi = false,
     delayTestConcurrency,
     delayTestTimeout,
+    downloadSpeedTestEnabled = true,
+    downloadSpeedTestAuto = false,
+    downloadSpeedTestUrl = DEFAULT_DOWNLOAD_SPEED_TEST_URL,
+    downloadSpeedTestBytes = DEFAULT_DOWNLOAD_SPEED_TEST_BYTES,
+    downloadSpeedTestTimeout = DEFAULT_DOWNLOAD_SPEED_TEST_TIMEOUT,
+    downloadSpeedTestConcurrency = DEFAULT_DOWNLOAD_SPEED_TEST_CONCURRENCY,
     rememberProxyGroupOpenState = false
   } = appConfig || {}
 
   const [url, setUrl] = useState(delayTestUrl ?? '')
+  const [speedUrl, setSpeedUrl] = useState(downloadSpeedTestUrl ?? '')
   const [isOpen, setIsOpen] = useState(true)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const profileId = profileConfig?.current ?? ''
+  const removedProxies = useSyncExternalStore(subscribeRemovedProxies, () =>
+    getRemovedProxyNames(profileId)
+  )
 
   const setUrlDebounce = useRef(
     debounce((v: string) => {
@@ -50,9 +76,19 @@ const ProxySettingDrawer: React.FC<Props> = (props) => {
     }, 500)
   ).current
 
+  const setSpeedUrlDebounce = useRef(
+    debounce((v: string) => {
+      patchAppConfig({ downloadSpeedTestUrl: v })
+    }, 500)
+  ).current
+
   useEffect(() => {
     setUrl(delayTestUrl ?? '')
   }, [delayTestUrl])
+
+  useEffect(() => {
+    setSpeedUrl(downloadSpeedTestUrl ?? '')
+  }, [downloadSpeedTestUrl])
 
   useEffect(() => {
     return () => {
@@ -147,19 +183,20 @@ const ProxySettingDrawer: React.FC<Props> = (props) => {
                   options={[
                     { id: 'default', label: '默认' },
                     { id: 'delay', label: '延迟' },
+                    { id: 'speed', label: '下载速度' },
                     { id: 'name', label: '名称' }
                   ]}
                   onChange={async (v) => {
                     await patchAppConfig({
-                      proxyDisplayOrder: v as 'default' | 'delay' | 'name'
+                      proxyDisplayOrder: v as 'default' | 'delay' | 'speed' | 'name'
                     })
                   }}
                 />
               </SettingItem>
-              <SettingItem title="测速后删除超时节点" {...settingItemProps} divider>
+              <SettingItem title="测速后彻底删除超时节点" {...settingItemProps} divider>
                 <Switch
                   size="sm"
-                  aria-label="测速后删除超时节点"
+                  aria-label="测速后彻底删除超时节点"
                   isSelected={removeTimeoutProxies}
                   onChange={(v) => {
                     patchAppConfig({ removeTimeoutProxies: v })
@@ -172,6 +209,19 @@ const ProxySettingDrawer: React.FC<Props> = (props) => {
                   </Switch.Content>
                 </Switch>
               </SettingItem>
+              {removedProxies.size > 0 && (
+                <SettingItem title="恢复已删除节点" {...settingItemProps} divider>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onPress={() => {
+                      clearRemovedProxies(profileId)
+                    }}
+                  >
+                    恢复 {removedProxies.size} 个节点
+                  </Button>
+                </SettingItem>
+              )}
               <SettingItem title="代理组额外信息" {...settingItemProps} divider>
                 <SettingTabs
                   ariaLabel="代理组额外信息"
@@ -365,6 +415,111 @@ const ProxySettingDrawer: React.FC<Props> = (props) => {
                   <InputGroup.Suffix>ms</InputGroup.Suffix>
                 </InputGroup>
               </SettingItem>
+              <SettingItem title="启用下载测速" {...settingItemProps} divider>
+                <Switch
+                  size="sm"
+                  aria-label="启用下载测速"
+                  isSelected={downloadSpeedTestEnabled}
+                  onChange={(v) => {
+                    patchAppConfig({ downloadSpeedTestEnabled: v })
+                  }}
+                >
+                  <Switch.Content>
+                    <Switch.Control>
+                      <Switch.Thumb />
+                    </Switch.Control>
+                  </Switch.Content>
+                </Switch>
+              </SettingItem>
+              {downloadSpeedTestEnabled && (
+                <>
+                  <SettingItem title="订阅更新后自动测下载" {...settingItemProps} divider>
+                    <Switch
+                      size="sm"
+                      aria-label="订阅更新后自动测下载"
+                      isSelected={downloadSpeedTestAuto}
+                      onChange={(v) => {
+                        patchAppConfig({ downloadSpeedTestAuto: v })
+                      }}
+                    >
+                      <Switch.Content>
+                        <Switch.Control>
+                          <Switch.Thumb />
+                        </Switch.Control>
+                      </Switch.Content>
+                    </Switch>
+                  </SettingItem>
+                  <SettingItem title="下载测速地址" {...settingItemProps} divider>
+                    <Input
+                      aria-label="下载测速地址"
+                      data-setting-input="url"
+                      value={speedUrl}
+                      placeholder={DEFAULT_DOWNLOAD_SPEED_TEST_URL}
+                      variant="secondary"
+                      onChange={(event) => {
+                        const v = event.target.value
+                        setSpeedUrl(v)
+                        setSpeedUrlDebounce(v)
+                      }}
+                    />
+                  </SettingItem>
+                  <SettingItem title="测速文件大小" {...settingItemProps} divider>
+                    <InputGroup data-setting-input="number" variant="secondary">
+                      <InputGroup.Input
+                        aria-label="测速文件大小"
+                        type="number"
+                        value={(downloadSpeedTestBytes / 1024 / 1024).toString()}
+                        min={1}
+                        max={100}
+                        placeholder="默认 10"
+                        onChange={(event) => {
+                          patchAppConfig({
+                            downloadSpeedTestBytes: normalizeDownloadSpeedTestBytes(
+                              parseFloat(event.target.value) * 1024 * 1024
+                            )
+                          })
+                        }}
+                      />
+                      <InputGroup.Suffix>MB</InputGroup.Suffix>
+                    </InputGroup>
+                  </SettingItem>
+                  <SettingItem title="下载测速并发数量" {...settingItemProps} divider>
+                    <InputGroup data-setting-input="number" variant="secondary">
+                      <InputGroup.Input
+                        aria-label="下载测速并发数量"
+                        type="number"
+                        value={downloadSpeedTestConcurrency?.toString()}
+                        min={1}
+                        max={4}
+                        placeholder={`默认 ${DEFAULT_DOWNLOAD_SPEED_TEST_CONCURRENCY}`}
+                        onChange={(event) => {
+                          patchAppConfig({
+                            downloadSpeedTestConcurrency: normalizeDownloadSpeedTestConcurrency(
+                              parseInt(event.target.value)
+                            )
+                          })
+                        }}
+                      />
+                    </InputGroup>
+                  </SettingItem>
+                  <SettingItem title="下载测速超时时间" {...settingItemProps}>
+                    <InputGroup data-setting-input="number" variant="secondary">
+                      <InputGroup.Input
+                        aria-label="下载测速超时时间"
+                        type="number"
+                        value={downloadSpeedTestTimeout?.toString()}
+                        placeholder={`默认 ${DEFAULT_DOWNLOAD_SPEED_TEST_TIMEOUT}`}
+                        onChange={(event) => {
+                          patchAppConfig({
+                            downloadSpeedTestTimeout: parseInt(event.target.value)
+                          })
+                        }}
+                      />
+                      <InputGroup.Suffix>ms</InputGroup.Suffix>
+                    </InputGroup>
+                  </SettingItem>
+                </>
+              )}
             </div>
           </Drawer.Body>
           <Drawer.CloseTrigger className="app-nodrag" />

@@ -180,6 +180,13 @@ interface ControllerProxiesDelay {
   message?: string
 }
 
+// 下载测速结果，speed 单位为 B/s
+interface ControllerProxySpeedResult {
+  bytes: number
+  duration: number
+  bytesPerSecond: number
+}
+
 // ${api}/group/:name/delay
 interface ControllerGroupDelay {
   [key: string]: number
